@@ -1,0 +1,2962 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>職缺窗口查詢管理平台</title>
+<!-- SheetJS：用於前端 xlsx 解析與生成，無需上傳至 Drive -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+/* ── 全域重設 ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', 'Microsoft JhengHei', '微軟正黑體', Arial, sans-serif;
+  font-size: 17px;
+  background: #f0f2f5;
+  color: #333;
+  min-height: 100vh;
+}
+
+/* ── 頂部標題列 ──────────────────────────────────────── */
+#header {
+  background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+  color: #fff;
+  padding: 0 24px;
+  height: 53px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* 右側使用者資訊 */
+#userBadge {
+  font-size: 14px;
+  font-weight: 400;
+  opacity: 0.88;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#roleBadge {
+  background: rgba(255,255,255,0.22);
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+#roleBadge.super { background: #fdd835; color: #333; }
+#roleBadge.admin { background: #43a047; color: #fff; }
+#roleBadge.readonly { background: rgba(255,255,255,0.2); color: #fff; }
+
+/* ── 頁籤導覽 ────────────────────────────────────────── */
+#tabs {
+  display: flex;
+  background: #fff;
+  border-bottom: 2px solid #e0e0e0;
+  padding: 0 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  position: sticky;
+  top: 53px;
+  z-index: 99;
+  flex-wrap: wrap;
+}
+.tab-btn {
+  padding: 12px 20px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  font-size: 17px;
+  color: #555;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.2s, border-color 0.2s;
+  font-family: inherit;
+  white-space: nowrap;
+  position: relative;
+}
+.tab-btn:hover:not(.locked) { color: #1a73e8; }
+.tab-btn.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+/* 無權限的頁籤樣式 */
+.tab-btn.locked {
+  color: #bbb;
+  cursor: not-allowed;
+}
+.tab-btn.locked::after {
+  content: ' 🔒';
+  font-size: 11px;
+}
+
+/* ── 主內容區 ────────────────────────────────────────── */
+#content { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── 卡片 ────────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  border: 1px solid #e8eaed;
+}
+.card-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1a73e8;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+/* ── 表單元素 ────────────────────────────────────────── */
+.form-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.form-row label { font-weight: 600; color: #555; min-width: 80px; }
+input[type="text"], input[type="email"], input[type="file"], select, textarea {
+  border: 1px solid #d0d0d0;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 17px;
+  font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+  background: #fff;
+}
+input[type="text"]:focus, input[type="email"]:focus, select:focus {
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26,115,232,0.15);
+}
+input[type="text"], input[type="email"] { min-width: 220px; }
+select { min-width: 120px; }
+.radio-group { display: flex; gap: 16px; align-items: center; }
+.radio-group label { font-weight: normal; min-width: auto; display: flex; align-items: center; gap: 4px; }
+
+/* ── 按鈕 ─────────────────────────────────────────────── */
+.btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 17px;
+  font-family: inherit;
+  font-weight: 600;
+  transition: background 0.18s, opacity 0.18s, transform 0.1s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary   { background: #1a73e8; color: #fff; }
+.btn-primary:hover:not(:disabled)   { background: #1558b0; }
+.btn-danger    { background: #e53935; color: #fff; }
+.btn-danger:hover:not(:disabled)    { background: #b71c1c; }
+.btn-secondary { background: #757575; color: #fff; }
+.btn-secondary:hover:not(:disabled) { background: #424242; }
+.btn-warning   { background: #f57c00; color: #fff; }
+.btn-warning:hover:not(:disabled)   { background: #e65100; }
+.btn-success   { background: #43a047; color: #fff; }
+.btn-success:hover:not(:disabled)   { background: #2e7d32; }
+.btn-sm { padding: 4px 10px; font-size: 14px; }
+
+/* ── 全域載入提示 ────────────────────────────────────── */
+#globalLoading {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 9000;
+  justify-content: center;
+  align-items: center;
+}
+#globalLoading.show { display: flex; }
+.spinner-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 28px 36px;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.22);
+  min-width: 180px;
+}
+.spinner {
+  width: 36px; height: 36px;
+  border: 4px solid #e0e0e0;
+  border-top-color: #1a73e8;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner-text { color: #555; font-size: 17px; }
+
+/* ── 候選公司清單 ────────────────────────────────────── */
+#candidateSection { display: none; }
+.candidate-hint { color: #555; margin-bottom: 8px; font-weight: 600; }
+.candidate-list { list-style: none; max-height: 260px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 6px; }
+.candidate-list li {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.candidate-list li:last-child { border-bottom: none; }
+.candidate-list li:hover { background: #e8f0fe; }
+.candidate-keyid {
+  background: #1a73e8;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 50px;
+  text-align: center;
+}
+
+/* ── 公司詳情 ────────────────────────────────────────── */
+#detailSection { display: none; }
+.info-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr 140px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+/* 公司名稱：橫跨整列，粗體，字體比基礎大 20% */
+.info-company-name {
+  grid-column: 1 / -1;
+  font-weight: 700;
+  font-size: calc(17px * 1.2); /* ≈ 20px */
+  color: #1a237e;
+  padding: 4px 0 2px;
+  word-break: break-all;
+}
+.info-label { color: #777; font-weight: 600; font-size: 15px; }
+.info-value { color: #222; font-size: 17px; word-break: break-all; }
+@media (max-width: 700px) {
+  .info-grid { grid-template-columns: 110px 1fr; }
+}
+
+/* ── 窗口明細表格 ────────────────────────────────────── */
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+thead th {
+  background: #1a73e8;
+  color: #fff;
+  padding: 9px 10px;
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 600;
+}
+tbody tr { border-bottom: 1px solid #f0f0f0; }
+tbody tr:nth-child(even) { background: #f8f9ff; }
+tbody tr:hover { background: #e8f0fe; }
+tbody td { padding: 8px 10px; vertical-align: middle; }
+.contact-disabled td { color: #aaa; }
+.contact-disabled .col-name { text-decoration: line-through; }
+.disabled-badge {
+  background: #e0e0e0;
+  color: #888;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 13px;
+}
+.score-badge {
+  display: inline-block;
+  background: #e3f2fd;
+  color: #1565c0;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.empty-hint { text-align: center; color: #aaa; padding: 20px; font-style: italic; }
+
+/* ── 訊息提示 ────────────────────────────────────────── */
+.msg-box {
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin: 10px 0;
+  font-weight: 600;
+}
+.msg-info    { background: #e3f2fd; color: #1565c0; border-left: 4px solid #1a73e8; }
+.msg-success { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #43a047; }
+.msg-error   { background: #ffebee; color: #c62828; border-left: 4px solid #e53935; }
+.msg-warning { background: #fff8e1; color: #e65100; border-left: 4px solid #f57c00; }
+
+/* ── 說明文字方塊 ────────────────────────────────────── */
+.instruction-box {
+  background: #f8f9ff;
+  border: 1px solid #c5cae9;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  font-size: 15px;
+  color: #3949ab;
+}
+.instruction-box strong { color: #1a237e; }
+.col-list { font-family: monospace; margin-top: 6px; line-height: 1.8; }
+
+/* ── 匯入/匯出記錄區 ────────────────────────────────── */
+.log-area {
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-top: 12px;
+  font-size: 15px;
+  max-height: 320px;
+  overflow-y: auto;
+  display: none;
+}
+.log-area.show { display: block; }
+.log-line { margin-bottom: 4px; }
+.log-failed-list { margin-top: 6px; padding-left: 16px; }
+.log-failed-list li { color: #c62828; margin-bottom: 2px; }
+
+/* ── Modal 覆蓋層 ────────────────────────────────────── */
+#modalOverlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 5000;
+  justify-content: center;
+  align-items: center;
+}
+#modalOverlay.show { display: flex; }
+#modalBox {
+  background: #fff;
+  border-radius: 10px;
+  padding: 28px 32px;
+  width: 480px;
+  max-width: 96vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+  position: relative;
+}
+#modalTitle { font-size: 22px; font-weight: 700; color: #1a73e8; margin-bottom: 20px; }
+.modal-field { margin-bottom: 14px; }
+.modal-field label {
+  display: block;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 5px;
+  font-size: 15px;
+}
+.modal-field input[type="text"],
+.modal-field input[type="email"],
+.modal-field select { width: 100%; min-width: unset; }
+.modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+#modalLoading {
+  display: none;
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255,255,255,0.82);
+  border-radius: 10px;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 10;
+}
+#modalLoading.show { display: flex; }
+
+/* ── 匯出預覽 ────────────────────────────────────────── */
+#exportPreview { font-size: 15px; color: #333; margin: 14px 0; min-height: 24px; }
+
+/* ── 進度列 ─────────────────────────────────────────── */
+.progress-bar-wrap {
+  display: none;
+  margin-top: 12px;
+}
+.progress-bar-wrap.show { display: block; }
+.progress-bar-track {
+  width: 100%;
+  height: 10px;
+  background: #e0e0e0;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: #1a73e8;
+  border-radius: 5px;
+  transition: width 0.4s ease;
+}
+.progress-bar-fill.done  { background: #2e7d32; }
+.progress-bar-fill.error { background: #c62828; }
+.progress-status {
+  margin-top: 5px;
+  font-size: 14px;
+  color: #555;
+}
+.progress-status.error { color: #c62828; font-weight: bold; }
+
+/* ── 授權管理區塊 ────────────────────────────────────── */
+#adminPanel {
+  display: none;
+  max-width: 1200px;
+  margin: 0 auto 32px;
+  padding: 0 20px;
+}
+.admin-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px 24px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  border: 2px solid #fdd835;
+}
+.admin-card-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e65100;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ffe082;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#adminListTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  margin-bottom: 16px;
+}
+#adminListTable th {
+  background: #fff8e1;
+  color: #e65100;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid #ffe082;
+}
+#adminListTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f5f5f5;
+}
+#adminListTable tr:hover td { background: #fffde7; }
+.admin-add-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.admin-add-row input[type="text"] { min-width: 200px; }
+#adminMsg { margin-top: 8px; font-size: 13px; min-height: 20px; }
+
+/* ── 無權限提示 ──────────────────────────────────────── */
+.permission-denied-box {
+  text-align: center;
+  padding: 60px 20px;
+  color: #aaa;
+}
+.permission-denied-box .lock-icon { font-size: 48px; margin-bottom: 16px; }
+.permission-denied-box p { font-size: 19px; font-weight: 600; color: #999; }
+.permission-denied-box small { display: block; margin-top: 8px; color: #bbb; }
+
+/* ── v3：新元件與密度微調 ─────────────────────────────── */
+#waveBadge {
+  background: rgba(255,255,255,0.22);
+  border-radius: 20px;
+  padding: 2px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  vertical-align: middle;
+}
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 5000;
+  justify-content: center;
+  align-items: center;
+}
+.modal-overlay.show { display: flex; }
+.modal-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 28px 32px;
+  width: 520px;
+  max-width: 96vw;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+  position: relative;
+}
+.modal-title2 { font-size: 22px; font-weight: 700; color: #1a73e8; margin-bottom: 20px; }
+.pin-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 2px 4px;
+  color: #bbb;
+}
+.pin-btn:hover { color: #f57c00; }
+.pin-btn.pinned { color: #f9a825; }
+.main-badge {
+  background: #f9a825;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+/* 姓名欄防壓縮：不換行＋最小寬度，指定徽章不擠壓名字 */
+td.col-name { white-space: nowrap; min-width: 80px; }
+/* 資料密度微調：表格數字等寬對齊、儲存格緊湊一級 */
+table { font-variant-numeric: tabular-nums; }
+tbody td { padding: 6px 10px; }
+</style>
+</head>
+<body>
+
+<!-- ── 頂部標題列 ───────────────────────────────────────── -->
+<div id="header">
+  <span>職缺窗口查詢管理平台 <span id="waveBadge" style="display:none;"></span></span>
+  <div id="userBadge">
+    <span id="userEmail">載入中...</span>
+    <span id="roleBadge" class="readonly">確認中...</span>
+  </div>
+</div>
+
+<!-- ── 身份選擇關卡（v6 新增）─────────────────────────────
+     一般 gmail 帳號無法被 Google 自動識別，改由使用者每次開啟時自選身份 -->
+<div id="identityGate" class="modal-overlay show" style="z-index:8000;">
+  <div class="modal-box" style="text-align:center;">
+    <div class="modal-title2">請選擇您的帳號</div>
+    <div id="identityOptions" style="display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;">
+      <div class="empty-hint">載入中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 通關密語 Modal（v7 新增，僅督導／超管會用到）──────── -->
+<div id="pinModalOverlay" class="modal-overlay" style="z-index:8100;">
+  <div class="modal-box" style="width:360px;">
+    <div class="modal-title2" id="pinModalTitle">輸入通關密語</div>
+    <div class="modal-field">
+      <label id="pinLabel1">通關密語</label>
+      <input type="password" id="pinInput1" autocomplete="off" onkeydown="if(event.key==='Enter')submitPinModal()">
+    </div>
+    <div class="modal-field" id="pinConfirmRow" style="display:none;">
+      <label>再輸入一次確認</label>
+      <input type="password" id="pinInput2" autocomplete="off" onkeydown="if(event.key==='Enter')submitPinModal()">
+    </div>
+    <div id="pinModalMsg" style="color:#c62828;font-size:13px;min-height:18px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closePinModal()">取消</button>
+      <button class="btn btn-primary" id="btnPinSubmit" onclick="submitPinModal()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 頁籤導覽 ─────────────────────────────────────────── -->
+<div id="tabs">
+  <button class="tab-btn active" data-tab="tab-search" onclick="switchTab('tab-search')">查詢維護</button>
+  <button class="tab-btn locked" data-tab="tab-import" id="tabBatch"
+          onclick="switchTab('tab-import')" title="需督導以上權限">批次作業</button>
+  <button class="tab-btn locked" data-tab="tab-auth" id="tabAdmin"
+          onclick="switchTab('tab-auth')" title="需超級管理員權限">系統管理</button>
+</div>
+
+<!-- ── 主內容區 ─────────────────────────────────────────── -->
+<div id="content">
+
+  <!-- ═══════════════════════════════════════════════════════
+       頁籤 1：查詢與管理（所有已登入使用者）
+  ════════════════════════════════════════════════════════ -->
+  <div id="tab-search" class="tab-panel active">
+
+    <!-- 搜尋表單 -->
+    <div class="card">
+      <div class="card-title">公司搜尋</div>
+      <div class="form-row">
+        <label>查詢方式</label>
+        <div class="radio-group">
+          <label><input type="radio" name="searchType" value="keyid"> keyid 流水號</label>
+          <label><input type="radio" name="searchType" value="id"> ID</label>
+          <label><input type="radio" name="searchType" value="name" checked> 公司名稱關鍵字</label>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>關鍵字</label>
+        <input type="text" id="keyword" placeholder="請輸入搜尋關鍵字"
+               onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn btn-primary" onclick="doSearch()">&#128269; 查詢</button>
+      </div>
+      <div id="searchMsg"></div>
+    </div>
+
+    <!-- 候選公司清單（多筆時顯示） -->
+    <div id="candidateSection" class="card">
+      <div class="card-title">查詢結果</div>
+      <div class="candidate-hint" id="candidateHint"></div>
+      <ul class="candidate-list" id="candidateList"></ul>
+    </div>
+
+    <!-- 公司詳情 -->
+    <div id="detailSection">
+
+      <!-- 公司基本資料 -->
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>公司基本資料</span>
+          <button class="btn btn-secondary btn-sm" id="btnEditCompany" onclick="openCompanyModal()" style="display:none;">&#9998; 編輯公司資料</button>
+        </div>
+        <div class="info-grid" id="companyInfoGrid"></div>
+      </div>
+
+      <!-- 窗口明細列表 -->
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>窗口明細列表</span>
+          <button class="btn btn-primary btn-sm" onclick="openAddModal()">&#43; 新增窗口</button>
+        </div>
+        <div class="table-wrap" id="contactTableWrap">
+          <div class="empty-hint">尚無窗口資料</div>
+        </div>
+      </div>
+
+      <!-- 調查註記 -->
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>調查註記</span>
+          <button class="btn btn-primary btn-sm" onclick="openNoteModal()">&#43; 新增註記</button>
+        </div>
+        <div class="table-wrap" id="notesTableWrap">
+          <div class="empty-hint">尚無註記</div>
+        </div>
+      </div>
+
+      <!-- 異動歷史 -->
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>異動歷史</span>
+          <button class="btn btn-secondary btn-sm" id="btnLoadHistory" onclick="loadHistory()">&#8635; 載入異動歷史</button>
+        </div>
+        <div class="table-wrap" id="historyWrap">
+          <div class="empty-hint">點「載入異動歷史」查看此公司的所有變更紀錄</div>
+        </div>
+      </div>
+
+      <!-- 母體填表人（僅供參考，不寫入窗口明細） -->
+      <div class="card">
+        <div class="card-title">母體填表人（僅供參考）</div>
+        <div class="info-grid" id="formPersonGrid"></div>
+      </div>
+
+    </div><!-- /detailSection -->
+  </div><!-- /tab-search -->
+
+
+  <!-- ═══════════════════════════════════════════════════════
+       頁籤 2：批次作業（匯入 / 匯出 / 新增樣本；需督導以上）
+  ════════════════════════════════════════════════════════ -->
+  <div id="tab-import" class="tab-panel">
+    <div id="importDenied" class="permission-denied-box" style="display:none;">
+      <div class="lock-icon">🔒</div>
+      <p>您沒有此功能的使用權限</p>
+      <small>請聯繫超級管理員申請授權</small>
+    </div>
+
+    <!-- 整批匯入（督導以上） -->
+    <div id="importContent" style="display:none;">
+      <div class="card">
+        <div class="card-title">整批匯入窗口資料</div>
+        <div class="instruction-box">
+          <strong>請準備 .xlsx 檔案，須包含以下欄位（欄名支援常見別名，不需完全一致）：</strong>
+          <div class="col-list">
+            keyid流水號 &nbsp;|&nbsp; ID &nbsp;|&nbsp; 公司名稱 &nbsp;|&nbsp;
+            調查後窗口 &nbsp;|&nbsp; 填表性別 &nbsp;|&nbsp; 職稱 &nbsp;|&nbsp;
+            接觸電話 &nbsp;|&nbsp; 分機 &nbsp;|&nbsp; 傳真 &nbsp;|&nbsp; email
+          </div>
+          <div style="margin-top:6px;color:#5c6bc0;font-size:12px;">
+            ※ 性別欄位請填入數字：1 = 先生，2 = 小姐<br>
+            ※ 僅接受 keyid 精確比對，找不到則記錄為「無法比對」<br>
+            ※ 同公司已有同姓名＋同電話（或同email）的啟用窗口時，該筆為「更新」而非重複新增
+          </div>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-secondary btn-sm" onclick="downloadImportTemplate()">&#8659; 下載範本檔</button>
+        </div>
+        <div class="form-row">
+          <label>選擇檔案</label>
+          <input type="file" id="importFile" accept=".xlsx">
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" id="btnBatchImport" onclick="doBatchImport()">&#128269; 檢查檔案</button>
+          <button class="btn btn-warning" id="btnConfirmImport" onclick="doConfirmBatchImport()" style="display:none;">&#8679; 確認匯入</button>
+        </div>
+        <div id="importPreview"></div>
+        <div class="progress-bar-wrap" id="importProgressWrap">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="importProgressFill"></div>
+          </div>
+          <div class="progress-status" id="importProgressStatus"></div>
+        </div>
+        <div class="log-area" id="importLog"></div>
+      </div>
+
+      <div class="card" style="margin-top:18px;">
+        <div class="card-title">同步來電註記</div>
+        <div class="instruction-box">
+          <strong>從來電記錄表單抓取「處理後註記」有內容的列，寫入平台調查註記。</strong>
+          <div style="margin-top:6px;color:#5c6bc0;font-size:12px;">
+            ※ 僅同步「處理結果＝已登記」且「處理後註記」有內容的列；以樣本編號(8碼)比對平台 ID。<br>
+            ※ 已同步過的列自動略過，可放心重複執行。<br>
+            ※ 以標題列欄名（處理結果／處理後註記／唯一編號／受訪單位／樣本編號）定位——欄位搬移不影響；欄名被改時同步會中止並明確提示。<br>
+            ※ 來電記錄表單 ID 由超級管理員在「系統管理 → 波次設定」設定；執行者需具備該表單的讀取權限。
+          </div>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" id="btnSyncNotes" onclick="doSyncNotes()">&#8635; 開始同步</button>
+        </div>
+        <div class="progress-bar-wrap" id="syncProgressWrap">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="syncProgressFill"></div>
+          </div>
+          <div class="progress-status" id="syncProgressStatus"></div>
+        </div>
+        <div class="log-area" id="syncLog"></div>
+      </div>
+
+      <div class="card" id="repairSection" style="display:none;margin-top:18px;">
+        <div class="card-title">email 批次修復（僅超級管理員）</div>
+        <div class="instruction-box">
+          <strong>請上傳 .xlsx，須包含欄位：keyid ｜ 錯誤email ｜ 修正email</strong>
+          <div style="margin-top:6px;color:#5c6bc0;font-size:12px;">
+            ※ 依「keyid＋錯誤email」精確比對窗口明細後改為修正值；公司主檔主要窗口 email 同步修正，並寫入異動紀錄。
+          </div>
+        </div>
+        <div class="form-row">
+          <label>選擇檔案</label>
+          <input type="file" id="repairFile" accept=".xlsx">
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" id="btnRepairImport" onclick="doRepairImport()">&#128295; 開始修復</button>
+        </div>
+        <div class="progress-bar-wrap" id="repairProgressWrap">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="repairProgressFill"></div>
+          </div>
+          <div class="progress-status" id="repairProgressStatus"></div>
+        </div>
+        <div class="log-area" id="repairLog"></div>
+      </div>
+    </div>
+
+    <!-- 整批匯出（督導以上） -->
+    <div id="exportContent" style="display:none;">
+      <div class="card" style="margin-top:18px;">
+        <div class="card-title">匯出主要窗口清單</div>
+        <p style="color:#555;margin-bottom:14px;">
+          匯出公司清單為 Excel 檔案。可選擇匯出範圍，並依行業別篩選（留空則不篩選）。
+        </p>
+        <div class="form-row" style="margin-bottom:6px;">
+          <label style="min-width:70px;">匯出範圍</label>
+          <div class="radio-group">
+            <label><input type="radio" name="exportScope" value="main" checked> 僅有主要窗口的公司</label>
+            <label><input type="radio" name="exportScope" value="all"> 全部公司（無主窗口者欄位留空）</label>
+          </div>
+        </div>
+        <div class="form-row" style="margin-bottom:14px;">
+          <label style="min-width:70px;">行業別</label>
+          <input type="text" id="exportIndustryFilter" placeholder="輸入行業別關鍵字（留空 = 全部）" style="min-width:280px;">
+          <span style="color:#888;font-size:13px;">模糊比對</span>
+        </div>
+        <button class="btn btn-primary" onclick="getExportPreview()">&#128203; 取得預覽</button>
+        <div id="exportPreview"></div>
+        <button class="btn btn-warning" id="btnConfirmExport" onclick="doExport()" style="display:none;">&#8681; 確認匯出</button>
+        <div class="progress-bar-wrap" id="exportProgressWrap">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="exportProgressFill"></div>
+          </div>
+          <div class="progress-status" id="exportProgressStatus"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px;">
+        <div class="card-title">窗口明細全檔匯出</div>
+        <p style="color:#555;margin-bottom:14px;">
+          匯出全部窗口明細（含停用窗口），供備份與離線分析使用。
+        </p>
+        <button class="btn btn-primary" id="btnExportAll" onclick="doExportContacts()">&#8681; 窗口明細全檔匯出</button>
+        <div class="progress-bar-wrap" id="exportAllProgressWrap">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="exportAllProgressFill"></div>
+          </div>
+          <div class="progress-status" id="exportAllProgressStatus"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增樣本（僅超級管理員） -->
+    <div id="sampleContent" style="display:none;">
+      <div class="card" style="margin-top:18px;">
+        <div class="card-title">新增樣本公司資料（僅超級管理員）</div>
+        <div class="instruction-box">
+          <strong>請準備 .xlsx 檔案，須包含以下欄位：</strong>
+          <div class="col-list">
+            keyid &nbsp;|&nbsp; ID &nbsp;|&nbsp; 統編 &nbsp;|&nbsp; 公司名稱 &nbsp;|&nbsp;
+            地址 &nbsp;|&nbsp; 填表人姓名 &nbsp;|&nbsp; 填表人電話 &nbsp;|&nbsp; 填表人傳真
+          </div>
+          <div style="margin-top:6px;color:#5c6bc0;font-size:12px;">
+            ※ 已存在的 keyid 將自動略過，不會覆蓋現有資料。
+          </div>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-secondary btn-sm" onclick="downloadSampleTemplate()">&#8659; 下載範本檔</button>
+        </div>
+        <div class="form-row">
+          <label>選擇檔案</label>
+          <input type="file" id="sampleFile" accept=".xlsx">
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" id="btnSampleImport" onclick="doSampleImport()">&#8679; 開始匯入</button>
+        </div>
+        <div class="progress-bar-wrap" id="sampleProgressWrap">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="sampleProgressFill"></div>
+          </div>
+          <div class="progress-status" id="sampleProgressStatus"></div>
+        </div>
+        <div class="log-area" id="sampleLog"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       頁籤 3：系統管理（波次設定＋授權管理；僅超級管理員）
+  ════════════════════════════════════════════════════════ -->
+  <div id="tab-auth" class="tab-panel">
+    <div id="authDenied" class="permission-denied-box" style="display:none;">
+      <div class="lock-icon">🔒</div>
+      <p>您沒有此功能的使用權限</p>
+      <small>此功能僅限超級管理員使用</small>
+    </div>
+    <div id="authContent" style="display:none;">
+
+      <div class="card">
+        <div class="card-title">波次設定</div>
+        <div class="instruction-box">
+          <strong>波次代號＝年＋調查資料月份</strong>，例：11506（115年6月底資料、7月調查）。全年依序 11412、11503、11506、11509。
+          <div style="margin-top:6px;color:#5c6bc0;font-size:12px;">
+            ※ 主要窗口規則：①手動指定 &gt; ②本波有更新（窗口最後修改時間 ≥ 波次起始日，多人取最後更新）&gt; ③完整度分數最高。<br>
+            ※ 未設定波次起始日時，自動退回完整度分數規則。<br>
+            ※ 來電記錄表單 ID 供「調查註記同步」（第三批功能）使用，可先留空。
+          </div>
+        </div>
+        <div class="form-row">
+          <label style="min-width:130px;">目前波次代號</label>
+          <input type="text" id="setWave" placeholder="例：11506" style="min-width:140px;">
+        </div>
+        <div class="form-row">
+          <label style="min-width:130px;">波次起始日</label>
+          <input type="text" id="setWaveStart" placeholder="例：2026/07/01" style="min-width:140px;">
+        </div>
+        <div class="form-row">
+          <label style="min-width:130px;">來電記錄表單 ID</label>
+          <input type="text" id="setCallLogId" placeholder="（第三批註記同步使用，可留空）" style="min-width:320px;">
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" onclick="doSaveSettings()">&#10003; 儲存設定</button>
+          <span id="settingsMsg" style="font-size:14px;"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">資料健檢</div>
+        <p style="color:#555;margin-bottom:14px;">
+          掃描全庫電話/傳真/email 的格式問題（科學記號損毀、含空格 email、非數字電話等），產出清單供人工修正。
+        </p>
+        <div class="form-row">
+          <button class="btn btn-primary" id="btnHealthCheck" onclick="doHealthCheck()">&#128269; 執行健檢</button>
+          <button class="btn btn-warning" id="btnHealthDownload" onclick="downloadHealthReport()" style="display:none;">&#8681; 下載問題清單</button>
+        </div>
+        <div class="log-area" id="healthLog"></div>
+      </div>
+
+      <div class="card" style="border:2px solid #fdd835;">
+        <div class="card-title" style="color:#e65100;">&#9733; 授權管理</div>
+        <p style="color:#777;font-size:13px;margin-bottom:4px;">管理可使用此系統的帳號與功能權限。</p>
+        <p style="color:#aaa;font-size:12px;margin-bottom:14px;">
+          一般帳號：查詢維護 &nbsp;｜&nbsp; 督導帳號：查詢維護＋批次作業（匯入/匯出） &nbsp;｜&nbsp; 超級管理員：全部功能
+        </p>
+
+        <table id="adminListTable">
+          <thead>
+            <tr>
+              <th>email</th>
+              <th>姓名</th>
+              <th>角色</th>
+              <th>授權時間</th>
+              <th>授權者</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="adminListBody">
+            <tr><td colspan="6" style="color:#aaa;text-align:center;padding:14px;">載入中...</td></tr>
+          </tbody>
+        </table>
+
+        <div class="admin-add-row" style="margin-top:16px;">
+          <input type="text" id="adminEmailInput" placeholder="輸入 email（Google 帳號）" style="min-width:240px;">
+          <input type="text" id="adminNameInput" placeholder="姓名">
+          <select id="adminRoleInput" style="min-width:160px;">
+            <option value="general">一般帳號（查詢）</option>
+            <option value="supervisor">督導帳號（查詢＋匯入匯出）</option>
+            <option value="superAdmin">超級管理員（全部功能）</option>
+          </select>
+          <button class="btn btn-success btn-sm" onclick="doAddAdmin()">&#43; 新增授權</button>
+        </div>
+        <div id="adminMsg"></div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /content -->
+
+
+<!-- ── 全域載入中 overlay ──────────────────────────────── -->
+<div id="globalLoading">
+  <div class="spinner-box">
+    <div class="spinner"></div>
+    <div class="spinner-text" id="loadingText">查詢中，請稍候...</div>
+  </div>
+</div>
+
+
+<!-- ── 新增/修改 Modal ────────────────────────────────── -->
+<div id="modalOverlay">
+  <div id="modalBox">
+    <div id="modalTitle">新增窗口</div>
+
+    <div class="modal-field">
+      <label>姓名 <span style="color:#e53935">*</span></label>
+      <input type="text" id="mName" placeholder="請輸入姓名">
+    </div>
+    <div class="modal-field">
+      <label>電話 <span style="color:#888;font-size:12px;font-weight:normal;">直接輸入數字，不要有符號 ( ) -</span></label>
+      <input type="text" id="mPhone" placeholder="例：0212345678">
+    </div>
+    <div class="modal-field">
+      <label>分機 <span style="color:#888;font-size:12px;font-weight:normal;">直接輸入數字，不要有符號如 # 分機 ext 轉</span></label>
+      <input type="text" id="mExt" placeholder="例：123">
+    </div>
+    <div class="modal-field">
+      <label>Email</label>
+      <input type="email" id="mEmail" placeholder="例：name@company.com">
+    </div>
+    <div class="modal-field">
+      <label>傳真 <span style="color:#888;font-size:12px;font-weight:normal;">直接輸入數字，不要有符號 ( ) -</span></label>
+      <input type="text" id="mFax" placeholder="例：0287654321">
+    </div>
+    <div class="modal-field">
+      <label>部門別</label>
+      <input type="text" id="mDept" placeholder="例：人資部">
+    </div>
+    <div class="modal-field">
+      <label>性別</label>
+      <select id="mGender">
+        <option value="">請選擇</option>
+        <option value="先生">先生</option>
+        <option value="小姐">小姐</option>
+      </select>
+    </div>
+
+    <div class="modal-field" id="keepOpenRow" style="margin-bottom:0;">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer;">
+        <input type="checkbox" id="mKeepOpen"> 儲存後繼續新增（連續建檔）
+      </label>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveContact()" id="btnSave">&#10003; 儲存</button>
+    </div>
+
+    <!-- Modal 內部載入遮罩 -->
+    <div id="modalLoading">
+      <div class="spinner"></div>
+      <div class="spinner-text">儲存中...</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── 公司資料編輯 Modal ─────────────────────────────── -->
+<div id="companyModalOverlay" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title2">編輯公司資料</div>
+    <div class="modal-field"><label>公司名稱 <span style="color:#e53935">*</span></label><input type="text" id="cName"></div>
+    <div class="modal-field"><label>統一編號</label><input type="text" id="cUnified"></div>
+    <div class="modal-field"><label>抽樣地址</label><input type="text" id="cAddress"></div>
+    <div class="modal-field"><label>行業別</label><input type="text" id="cIndustry"></div>
+    <div class="modal-field"><label>寄送方式</label>
+      <select id="cDelivery">
+        <option value="">（未設定＝紙本）</option>
+        <option value="紙本">紙本</option>
+        <option value="電子檔">電子檔</option>
+        <option value="傳真">傳真</option>
+        <option value="不寄">不寄</option>
+      </select>
+    </div>
+    <div class="modal-field"><label>寄送地址（留空＝同抽樣地址）</label><input type="text" id="cDeliveryAddr"></div>
+    <div class="modal-field"><label>公司狀態</label>
+      <select id="cCoStatus">
+        <option value="">正常</option>
+        <option value="已更名">已更名</option>
+        <option value="已合併">已合併</option>
+        <option value="歇業">歇業</option>
+      </select>
+    </div>
+    <div class="modal-field"><label>狀態備註（例：已更名 XX 公司、統編改 12345678）</label><input type="text" id="cStatusNote"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeCompanyModal()">取消</button>
+      <button class="btn btn-primary" id="btnSaveCompany" onclick="saveCompany()">&#10003; 儲存</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── 新增調查註記 Modal ─────────────────────────────── -->
+<div id="noteModalOverlay" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title2">新增調查註記</div>
+    <div class="modal-field"><label>註記類型</label>
+      <select id="nType">
+        <option value="寄送方式變更">寄送方式變更</option>
+        <option value="地址變更">地址變更</option>
+        <option value="公司異動">公司異動（更名/合併/歇業）</option>
+        <option value="拒訪挽留">拒訪挽留</option>
+        <option value="其他" selected>其他</option>
+      </select>
+    </div>
+    <div class="modal-field"><label>註記內容 <span style="color:#e53935">*</span></label>
+      <textarea id="nContent" rows="4" style="width:100%;"></textarea>
+    </div>
+    <div style="color:#888;font-size:13px;margin-bottom:8px;">
+      將記錄於目前波次，狀態預設「生效中」；匯出主要窗口清單時會帶出生效中註記。
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeNoteModal()">取消</button>
+      <button class="btn btn-primary" id="btnSaveNote" onclick="saveNote()">&#10003; 儲存</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ── 套用註記至公司資料 Modal ───────────────────────── -->
+<div id="applyModalOverlay" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title2">套用註記至公司資料</div>
+    <div class="modal-field"><label>註記內容（對照下方欄位填寫）</label>
+      <div id="aContent" style="background:#f8f9ff;border:1px solid #c5cae9;border-radius:6px;padding:10px 12px;font-size:15px;white-space:pre-wrap;"></div>
+    </div>
+    <div class="modal-field"><label>寄送方式</label>
+      <select id="aDelivery">
+        <option value="">（未設定＝紙本）</option>
+        <option value="紙本">紙本</option>
+        <option value="電子檔">電子檔</option>
+        <option value="傳真">傳真</option>
+        <option value="不寄">不寄</option>
+      </select>
+    </div>
+    <div class="modal-field"><label>寄送地址（留空＝同抽樣地址）</label><input type="text" id="aDeliveryAddr"></div>
+    <div class="modal-field"><label>公司狀態</label>
+      <select id="aCoStatus">
+        <option value="">正常</option>
+        <option value="已更名">已更名</option>
+        <option value="已合併">已合併</option>
+        <option value="歇業">歇業</option>
+      </select>
+    </div>
+    <div class="modal-field"><label>狀態備註</label><input type="text" id="aStatusNote"></div>
+    <div class="modal-field" style="margin-bottom:0;">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer;">
+        <input type="checkbox" id="aDeactivate" checked> 套用後將此註記設為「已失效」（避免匯出時與正式欄位重複）
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeApplyModal()">取消</button>
+      <button class="btn btn-warning" id="btnApplyNote" onclick="saveApplyNote()">&#10003; 套用</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════
+     JavaScript
+════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ── 全域狀態 ──────────────────────────────────────────────
+var currentCompany   = null;   // 目前選取的公司物件
+var currentContacts  = [];     // 目前公司的窗口陣列
+var editingRowIndex  = null;   // 正在修改的 rowIndex（1-based）
+var isEditing        = false;  // false = 新增模式，true = 修改模式
+var currentUserRole  = null;   // 'superAdmin' | 'admin' | 'readonly'
+var __identityEmail  = '';     // v6：使用者在身份選單中選定的 email，每次呼叫伺服器功能都會帶上
+
+// ── 前端快取（提升搜尋速度至毫秒級）─────────────────────
+var allCompanies = [];   // 所有公司資料（頁面載入時一次取得）
+var contactsMap  = {};   // { keyid: [contact, ...] }（O(1) 查詢）
+var dataLoaded   = false;
+var systemSettings = { wave: '', waveStart: '', callLogId: '' }; // 波次設定（getInitialData 帶回）
+var notesMap = {};   // { keyid: [note, ...] }（調查註記快取）
+
+// ── 頁面初始化 ────────────────────────────────────────────
+
+/**
+ * 頁面載入完成後：先顯示身份選單（v6），選定身份後才開始載入資料
+ */
+window.onload = function() {
+  google.script.run
+    .withSuccessHandler(renderIdentityOptions)
+    .withFailureHandler(function(err) {
+      document.getElementById('identityOptions').innerHTML =
+        '<div class="msg-box msg-error">身份清單載入失敗：' + escHtml(String(err)) + '</div>';
+    })
+    .getIdentityOptions();
+};
+
+/**
+ * 渲染身份選單（v6 新增，v7 加上督導/超管的密語分流）
+ * 此呼叫發生在身份選定前，不經過 runAs
+ * 一般帳號：點了直接進入；督導／超管：點了先跳密語畫面（依 pinSet 決定是設定還是輸入）
+ */
+function renderIdentityOptions(list) {
+  var wrap = document.getElementById('identityOptions');
+  wrap.innerHTML = '';
+  (list || []).forEach(function(item) {
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.style.width = '100%';
+    btn.style.justifyContent = 'center';
+    btn.textContent = item.label + (item.pinRequired ? '　🔒' : '');
+    btn.onclick = function() {
+      if (item.pinRequired) {
+        openPinModal(item.email, item.label, !item.pinSet);
+      } else {
+        selectIdentity(item.email);
+      }
+    };
+    wrap.appendChild(btn);
+  });
+}
+
+/** 使用者選定一般帳號身份後，關閉選單並開始載入平台（v6 新增） */
+function selectIdentity(email) {
+  __identityEmail = email;
+  document.getElementById('identityGate').style.display = 'none';
+  bootApp();
+}
+
+// ── 通關密語（v7 新增，僅督導／超管走這段）────────────────
+
+var __pinMode  = null;  // 'setup' | 'verify'
+var __pinEmail = null;
+
+/** 開啟密語彈窗；isSetup=true 表示這個帳號還沒設過密語，走設定流程 */
+function openPinModal(email, label, isSetup) {
+  __pinMode  = isSetup ? 'setup' : 'verify';
+  __pinEmail = email;
+  document.getElementById('pinModalTitle').textContent = (isSetup ? '設定通關密語－' : '輸入通關密語－') + label;
+  document.getElementById('pinInput1').value = '';
+  document.getElementById('pinInput2').value = '';
+  document.getElementById('pinConfirmRow').style.display = isSetup ? 'block' : 'none';
+  document.getElementById('pinModalMsg').textContent = '';
+  document.getElementById('pinModalOverlay').classList.add('show');
+  document.getElementById('pinInput1').focus();
+}
+
+function closePinModal() {
+  document.getElementById('pinModalOverlay').classList.remove('show');
+}
+
+function submitPinModal() {
+  var pin   = document.getElementById('pinInput1').value;
+  var msgEl = document.getElementById('pinModalMsg');
+  var btn   = document.getElementById('btnPinSubmit');
+  btn.disabled = true;
+  msgEl.textContent = '';
+
+  if (__pinMode === 'setup') {
+    var pin2 = document.getElementById('pinInput2').value;
+    google.script.run
+      .withSuccessHandler(function(r) { btn.disabled = false; onPinSuccess(r.token); })
+      .withFailureHandler(function(err) { btn.disabled = false; msgEl.textContent = String(err); })
+      .setupPin(__pinEmail, pin, pin2);
+  } else {
+    google.script.run
+      .withSuccessHandler(function(r) { btn.disabled = false; onPinSuccess(r.token); })
+      .withFailureHandler(function(err) { btn.disabled = false; msgEl.textContent = String(err); })
+      .verifyPin(__pinEmail, pin);
+  }
+}
+
+/** 密語驗證/設定成功後，用伺服器發回的 token 當作身份繼續開啟平台 */
+function onPinSuccess(token) {
+  closePinModal();
+  __identityEmail = token;
+  document.getElementById('identityGate').style.display = 'none';
+  bootApp();
+}
+
+/**
+ * 同步取得使用者身份 + 預載所有資料至前端快取
+ * （v5 原 window.onload 內容，v6 移到選定身份後才觸發，並改經 runAs 呼叫）
+ */
+function bootApp() {
+  google.script.run
+    .withSuccessHandler(applyUserRole)
+    .withFailureHandler(function(err) {
+      document.getElementById('userEmail').textContent  = '（無法取得帳號）';
+      document.getElementById('roleBadge').textContent  = '唯讀';
+    })
+    .runAs(__identityEmail, 'isAdmin', []);
+
+  // 一次預載所有公司與窗口資料，之後搜尋/顯示均在前端記憶體完成
+  showLoading('初始化資料中，請稍候...');
+  google.script.run
+    .withSuccessHandler(function(data) {
+      allCompanies = data.companies;
+      contactsMap  = {};
+      data.contacts.forEach(function(c) {
+        var k = String(c.keyid).trim();
+        if (!contactsMap[k]) contactsMap[k] = [];
+        contactsMap[k].push(c);
+      });
+      notesMap = {};
+      (data.notes || []).forEach(function(n) {
+        var nk = String(n.keyid).trim();
+        if (!notesMap[nk]) notesMap[nk] = [];
+        notesMap[nk].push(n);
+      });
+      dataLoaded = true;
+      if (data.settings) { systemSettings = data.settings; updateWaveBadge(); }
+      hideLoading();
+      document.getElementById('keyword').focus();
+    })
+    .withFailureHandler(function(err) {
+      hideLoading();
+      showSearchMsg('初始資料載入失敗，搜尋將改為即時查詢模式：' + String(err), 'warning');
+    })
+    .runAs(__identityEmail, 'getInitialData', []);
+}
+
+/**
+ * 根據伺服器回傳的權限層級調整 UI
+ * 分級：superAdmin > supervisor > general > denied
+ * @param {{role: string, email: string}} info
+ */
+function applyUserRole(info) {
+  currentUserRole = info.role;
+
+  document.getElementById('userEmail').textContent = info.email || '未知帳號';
+  var badge = document.getElementById('roleBadge');
+
+    if (info.role === 'denied') {
+    // 非授權帳號：隱藏頁籤與內容，顯示拒絕畫面
+    badge.textContent = '未授權';
+    badge.className   = 'readonly';
+    document.getElementById('tabs').style.display    = 'none';
+    document.getElementById('content').innerHTML     =
+      '<div class="permission-denied-box" style="padding:80px 20px;">' +
+      '<div class="lock-icon">🔒</div>' +
+      '<p>您的帳號沒有使用此系統的權限</p>' +
+      '<small>' + escHtml(info.email || '未知帳號') + '</small><br><br>' +
+      '<small>請聯繫超級管理員申請授權</small>' +
+      '</div>';
+    hideLoading();
+    return;
+  }
+
+
+  if (info.role === 'superAdmin') {
+    badge.textContent = '超級管理員';
+    badge.className   = 'super';
+    unlockTab('tabBatch');
+    unlockTab('tabAdmin');
+    showTabContent(['import', 'export', 'sample', 'auth']);
+    var repairSec = document.getElementById('repairSection');
+    if (repairSec) repairSec.style.display = 'block';
+    loadAdminList();
+    loadSettingsUI();
+
+  } else if (info.role === 'supervisor') {
+    badge.textContent = '督導';
+    badge.className   = 'admin';
+    unlockTab('tabBatch');
+    showTabContent(['import', 'export']);
+    hideSection('sampleContent');
+    showDenied(['auth']);
+
+  } else {
+    // general：僅查詢維護
+    badge.textContent = '一般使用者';
+    badge.className   = 'readonly';
+    showDenied(['import', 'auth']);
+  }
+}
+
+/** 隱藏批次作業內無權限的區段 */
+function hideSection(id) {
+  var el = document.getElementById(id);
+  if (el) el.style.display = 'none';
+}
+
+/** 解除分頁的鎖定狀態 */
+function unlockTab(tabBtnId) {
+  var btn = document.getElementById(tabBtnId);
+  if (btn) {
+    btn.classList.remove('locked');
+    btn.removeAttribute('title');
+  }
+}
+
+/** 顯示有權限的頁籤內容區（隱藏無權限提示） */
+function showTabContent(tabNames) {
+  tabNames.forEach(function(name) {
+    var el = document.getElementById(name + 'Content');
+    if (el) el.style.display = 'block';
+    var denied = document.getElementById(name + 'Denied');
+    if (denied) denied.style.display = 'none';
+  });
+}
+
+/** 顯示無權限提示 */
+function showDenied(tabNames) {
+  tabNames.forEach(function(name) {
+    var el = document.getElementById(name + 'Denied');
+    if (el) el.style.display = 'block';
+    var content = document.getElementById(name + 'Content');
+    if (content) content.style.display = 'none';
+  });
+}
+
+// ── 頁籤切換 ──────────────────────────────────────────────
+
+/**
+ * 切換頁籤，鎖定中的頁籤顯示提示訊息
+ */
+function switchTab(tabId) {
+  var btn = document.querySelector('[data-tab="' + tabId + '"]');
+
+  // 鎖定中的分頁：顯示提示，不切換
+  if (btn && btn.classList.contains('locked')) {
+    alert('此功能需要更高權限，請聯繫超級管理員申請授權。');
+    return;
+  }
+
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+
+  document.getElementById(tabId).classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+// ── 全域載入提示 ──────────────────────────────────────────
+function showLoading(msg) {
+  document.getElementById('loadingText').textContent = msg || '查詢中，請稍候...';
+  document.getElementById('globalLoading').classList.add('show');
+}
+function hideLoading() {
+  document.getElementById('globalLoading').classList.remove('show');
+}
+
+// ── 搜尋 ──────────────────────────────────────────────────
+
+function doSearch() {
+  var type    = document.querySelector('input[name="searchType"]:checked').value;
+  var keyword = document.getElementById('keyword').value.trim();
+  if (!keyword) { alert('請輸入查詢條件'); return; }
+
+  document.getElementById('candidateSection').style.display = 'none';
+  document.getElementById('detailSection').style.display    = 'none';
+  document.getElementById('searchMsg').innerHTML = '';
+
+  // 資料尚未載入時，退回伺服器查詢模式
+  if (!dataLoaded) {
+    showLoading('查詢中，請稍候...');
+    google.script.run
+      .withSuccessHandler(handleSearchResult)
+      .withFailureHandler(handleError)
+      .runAs(__identityEmail, 'searchCompany', [type, keyword]);
+    return;
+  }
+
+  // 前端記憶體搜尋（毫秒級，無需 server 呼叫）
+  var kw      = keyword;
+  var kwLower = kw.toLowerCase();
+  var results = [];
+  var tooMany = false;
+
+  for (var i = 0; i < allCompanies.length; i++) {
+    var co      = allCompanies[i];
+    var matched = false;
+    if (type === 'keyid') {
+      matched = (String(co.keyid).trim() === kw);
+    } else if (type === 'id') {
+      matched = (String(co.id).trim() === kw);
+    } else if (type === 'name') {
+      matched = (String(co.name).toLowerCase().indexOf(kwLower) !== -1);
+    }
+    if (matched) {
+      results.push(co);
+      if (type === 'name' && results.length > 10) { tooMany = true; break; }
+    }
+  }
+
+  handleSearchResult({ companies: results, tooMany: tooMany });
+}
+
+function handleSearchResult(result) {
+  hideLoading();
+  if (!result || !result.companies) {
+    showSearchMsg('伺服器回傳資料異常', 'error');
+    return;
+  }
+  if (result.companies.length === 0) {
+    showSearchMsg('查無符合的公司', 'info');
+    return;
+  }
+  if (result.tooMany) {
+    showCandidateList(result.companies, true);
+  } else if (result.companies.length === 1) {
+    selectCompany(result.companies[0]);
+  } else {
+    showCandidateList(result.companies, false);
+  }
+}
+
+function showSearchMsg(msg, type) {
+  var cls = { info: 'msg-info', success: 'msg-success', error: 'msg-error', warning: 'msg-warning' };
+  document.getElementById('searchMsg').innerHTML =
+    '<div class="msg-box ' + (cls[type] || 'msg-info') + '">' + escHtml(msg) + '</div>';
+}
+
+function showCandidateList(companies, tooMany) {
+  var section = document.getElementById('candidateSection');
+  var hint    = document.getElementById('candidateHint');
+  var list    = document.getElementById('candidateList');
+
+  hint.textContent = tooMany
+    ? '查詢結果過多（僅顯示前段），請縮小關鍵字後重新查詢，或從以下結果選擇：'
+    : '查詢結果共 ' + companies.length + ' 筆，請選擇公司：';
+
+  list.innerHTML = '';
+  companies.forEach(function(co) {
+    var li = document.createElement('li');
+    li.innerHTML =
+      '<span class="candidate-keyid">' + escHtml(String(co.keyid)) + '</span>' +
+      '<span>' + escHtml(co.name) + '</span>' +
+      '<span style="color:#999;font-size:12px;margin-left:auto;">' + escHtml(co.id || '') + '</span>';
+    li.addEventListener('click', function() { selectCompany(co); });
+    list.appendChild(li);
+  });
+
+  section.style.display = 'block';
+  document.getElementById('detailSection').style.display = 'none';
+}
+
+function selectCompany(company) {
+  currentCompany = company;
+  document.getElementById('candidateSection').style.display = 'none';
+  renderCompanyDetail(company);
+  loadContacts(company.keyid);
+  renderNotes(String(company.keyid).trim());
+  resetHistory();
+}
+
+// ── 載入窗口 ──────────────────────────────────────────────
+
+/**
+ * 從前端快取取得指定公司的窗口資料（毫秒級，無 server 呼叫）
+ * 資料尚未載入時退回伺服器模式
+ */
+function loadContacts(keyid) {
+  var kidStr = String(keyid).trim();
+  if (dataLoaded) {
+    currentContacts = contactsMap[kidStr] || [];
+    renderContacts(currentContacts);
+    return;
+  }
+  // 快取未就緒時退回伺服器查詢
+  showLoading('載入窗口資料...');
+  google.script.run
+    .withSuccessHandler(function(contacts) {
+      hideLoading();
+      currentContacts = contacts;
+      renderContacts(contacts);
+    })
+    .withFailureHandler(handleError)
+    .runAs(__identityEmail, 'getContacts', [keyid]);
+}
+
+/**
+ * 寫入操作完成後，從伺服器刷新單家公司資料並更新前端快取
+ * 避免全量重載，只取有異動的公司
+ */
+function refreshCompanyData(keyid) {
+  var kidStr = String(keyid).trim();
+  showLoading('更新資料中...');
+  google.script.run
+    .withSuccessHandler(function(data) {
+      hideLoading();
+      if (data.company) {
+        // 更新前端公司快取
+        for (var i = 0; i < allCompanies.length; i++) {
+          if (String(allCompanies[i].keyid).trim() === kidStr) {
+            allCompanies[i] = data.company;
+            break;
+          }
+        }
+        currentCompany = data.company;
+        renderCompanyDetail(data.company);
+      }
+      // 更新前端窗口快取
+      contactsMap[kidStr] = data.contacts;
+      currentContacts = data.contacts;
+      renderContacts(data.contacts);
+    })
+    .withFailureHandler(handleError)
+    .runAs(__identityEmail, 'getCompanyWithContacts', [keyid]);
+}
+
+// ── 渲染公司詳情 ──────────────────────────────────────────
+
+function renderCompanyDetail(co) {
+  document.getElementById('companyInfoGrid').innerHTML =
+    infoItem('keyid 流水號', co.keyid) +
+    infoItem('ID',           co.id) +
+    '<span class="info-company-name">' + escHtml(String(co.name || '—')) + '</span>' +
+    infoItem('統一編號', co.unified) +
+    infoItem('公司狀態', (co.coStatus || '正常') + (co.statusNote ? '｜' + co.statusNote : '')) +
+    infoItem('抽樣地址', co.address) +
+    infoItem('行業別',   co.industry) +
+    infoItem('寄送方式', co.delivery || '紙本（預設）') +
+    infoItem('寄送地址', co.deliveryAddr || '（同抽樣地址）');
+
+  document.getElementById('formPersonGrid').innerHTML =
+    infoItem('姓名', co.formName) +
+    infoItem('電話', co.formPhone) +
+    infoItem('傳真', co.formFax);
+
+  var editBtn = document.getElementById('btnEditCompany');
+  if (editBtn) {
+    editBtn.style.display =
+      (currentUserRole === 'superAdmin' || currentUserRole === 'supervisor') ? 'inline-flex' : 'none';
+  }
+
+  document.getElementById('detailSection').style.display = 'block';
+}
+
+function infoItem(label, value) {
+  return '<span class="info-label">' + escHtml(label) + '</span>' +
+         '<span class="info-value">' + escHtml(String(value || '—')) + '</span>';
+}
+
+// ── 渲染窗口表格 ──────────────────────────────────────────
+
+function renderContacts(contacts) {
+  var wrap = document.getElementById('contactTableWrap');
+  if (!contacts || contacts.length === 0) {
+    wrap.innerHTML = '<div class="empty-hint">尚無窗口資料</div>';
+    return;
+  }
+
+  var html = '<table>' +
+    '<thead><tr>' +
+    '<th title="手動指定主要窗口，優先於自動計算">主窗口</th>' +
+    '<th>姓名</th><th>電話</th><th>分機</th><th>Email</th>' +
+    '<th>傳真</th><th>部門別</th><th>性別</th><th>狀態</th>' +
+    '<th>完整度</th><th>來源</th><th>波次</th><th>建立時間</th><th>操作</th>' +
+    '</tr></thead><tbody>';
+
+  contacts.forEach(function(c) {
+    var isDisabled = (String(c.status).trim() === '停用');
+    var trClass    = isDisabled ? 'contact-disabled' : '';
+    var ops = '';
+    var pinCell = '';
+    if (!isDisabled) {
+      pinCell = '<button class="pin-btn' + (c.pinned ? ' pinned' : '') + '"' +
+        ' title="' + (c.pinned ? '取消手動指定' : '指定為主要窗口（優先於自動計算）') + '"' +
+        ' onclick="doPinContact(' + c.rowIndex + ',' + (c.pinned ? 'false' : 'true') + ')">' +
+        (c.pinned ? '&#9733;' : '&#9734;') + '</button>';
+      ops =
+        '<button class="btn btn-primary btn-sm" onclick="openEditModal(' + c.rowIndex + ')">修改</button> ' +
+        '<button class="btn btn-danger  btn-sm" onclick="doDisableContact(' + c.rowIndex + ')">停用</button>';
+    } else {
+      ops = '<span class="disabled-badge">已停用</span>';
+    }
+
+    html += '<tr class="' + trClass + '">' +
+      '<td style="text-align:center;">' + pinCell + '</td>' +
+      '<td class="col-name">' + escHtml(c.name   || '') + (c.pinned ? '<span class="main-badge">指定</span>' : '') + '</td>' +
+      '<td>' + escHtml(c.phone  || '') + '</td>' +
+      '<td>' + escHtml(c.ext    || '') + '</td>' +
+      '<td>' + escHtml(c.email  || '') + '</td>' +
+      '<td>' + escHtml(c.fax    || '') + '</td>' +
+      '<td>' + escHtml(c.dept   || '') + '</td>' +
+      '<td>' + escHtml(c.gender || '') + '</td>' +
+      '<td>' + escHtml(c.status || '') + '</td>' +
+      '<td><span class="score-badge">' + (c.score !== undefined ? c.score : '') + '</span></td>' +
+      '<td>' + escHtml(c.source  || '') + '</td>' +
+      '<td>' + escHtml(c.wave    || '') + '</td>' +
+      '<td style="white-space:nowrap;font-size:12px;">' + escHtml(c.created || '') + '</td>' +
+      '<td style="white-space:nowrap;">' + ops + '</td>' +
+      '</tr>';
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+/**
+ * 指定/取消主要窗口
+ */
+function doPinContact(rowIndex, pin) {
+  if (!currentCompany) return;
+  showLoading(pin ? '設定主要窗口...' : '取消指定...');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      hideLoading();
+      if (r.company && r.contacts) {
+        updateLocalCache(r.company, r.contacts);
+      } else {
+        refreshCompanyData(currentCompany.keyid);
+      }
+    })
+    .withFailureHandler(handleError)
+    .runAs(__identityEmail, 'setMainContactPin', [currentCompany.keyid, rowIndex, pin]);
+}
+
+// ── Modal 操作// ── Modal 操作 ────────────────────────────────────────────
+
+function openAddModal() {
+  if (!currentCompany) { alert('請先選取一家公司'); return; }
+  isEditing       = false;
+  editingRowIndex = null;
+  clearModal();
+  document.getElementById('keepOpenRow').style.display = 'block';
+  document.getElementById('modalTitle').textContent = '新增窗口';
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+function openEditModal(rowIndex) {
+  // 從已載入的 currentContacts 中找對應資料，無需重複 API 呼叫
+  var contact = null;
+  for (var i = 0; i < currentContacts.length; i++) {
+    if (currentContacts[i].rowIndex === rowIndex) { contact = currentContacts[i]; break; }
+  }
+  if (!contact) { alert('找不到窗口資料，請重新查詢'); return; }
+
+  isEditing       = true;
+  editingRowIndex = rowIndex;
+  fillModal(contact);
+  document.getElementById('keepOpenRow').style.display = 'none';
+  document.getElementById('modalTitle').textContent = '修改窗口';
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+function clearModal() {
+  ['mName', 'mPhone', 'mExt', 'mEmail', 'mFax', 'mDept'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('mGender').value = '';
+  hideModalLoading();
+}
+
+function fillModal(contact) {
+  document.getElementById('mName').value   = contact.name   || '';
+  document.getElementById('mPhone').value  = contact.phone  || '';
+  document.getElementById('mExt').value    = contact.ext    || '';
+  document.getElementById('mEmail').value  = contact.email  || '';
+  document.getElementById('mFax').value    = contact.fax    || '';
+  document.getElementById('mDept').value   = contact.dept   || '';
+  document.getElementById('mGender').value = contact.gender || '';
+  hideModalLoading();
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('show');
+}
+
+function onOverlayClick(event) {
+  if (event.target === document.getElementById('modalOverlay')) closeModal();
+}
+
+function getModalData() {
+  return {
+    name:   document.getElementById('mName').value.trim(),
+    phone:  document.getElementById('mPhone').value.trim(),
+    ext:    document.getElementById('mExt').value.trim(),
+    email:  document.getElementById('mEmail').value.trim(),
+    fax:    document.getElementById('mFax').value.trim(),
+    dept:   document.getElementById('mDept').value.trim(),
+    gender: document.getElementById('mGender').value
+  };
+}
+
+function showModalLoading() {
+  document.getElementById('modalLoading').classList.add('show');
+  document.getElementById('btnSave').disabled = true;
+}
+function hideModalLoading() {
+  document.getElementById('modalLoading').classList.remove('show');
+  document.getElementById('btnSave').disabled = false;
+}
+
+function saveContact() {
+  var data = getModalData();
+  if (!data.name) { alert('姓名為必填欄位'); return; }
+  if (data.email && !/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(data.email)) {
+    alert('email 格式不正確：' + data.email + '\n請檢查是否含空格、缺少 @ 或網域不完整。');
+    return;
+  }
+
+  showModalLoading();
+  if (isEditing) {
+    google.script.run
+      .withSuccessHandler(onSaveSuccess)
+      .withFailureHandler(onSaveError)
+      .runAs(__identityEmail, 'editContact', [currentCompany.keyid, editingRowIndex, data]);
+  } else {
+    google.script.run
+      .withSuccessHandler(onSaveSuccess)
+      .withFailureHandler(onSaveError)
+      .runAs(__identityEmail, 'addContact', [currentCompany.keyid, data]);
+  }
+}
+
+function onSaveSuccess(result) {
+  hideModalLoading();
+  // 直接用回傳資料更新快取，不再額外呼叫 server，也不彈出確認視窗
+  if (result.company && result.contacts) {
+    updateLocalCache(result.company, result.contacts);
+  } else {
+    refreshCompanyData(currentCompany.keyid);
+  }
+  // 連續建檔：新增模式且勾選「儲存後繼續新增」時，清空欄位續填不關閉
+  if (!isEditing && document.getElementById('mKeepOpen').checked) {
+    clearModal();
+    document.getElementById('mName').focus();
+    return;
+  }
+  closeModal();
+}
+
+function onSaveError(err) {
+  hideModalLoading();
+  alert('儲存失敗：' + String(err));
+}
+
+/**
+ * 以伺服器回傳的最新資料更新前端快取並重繪畫面
+ */
+function updateLocalCache(company, contacts) {
+  var kidStr = String(company.keyid).trim();
+  for (var i = 0; i < allCompanies.length; i++) {
+    if (String(allCompanies[i].keyid).trim() === kidStr) {
+      allCompanies[i] = company;
+      break;
+    }
+  }
+  currentCompany      = company;
+  contactsMap[kidStr] = contacts;
+  currentContacts     = contacts;
+  renderCompanyDetail(company);
+  renderContacts(contacts);
+}
+
+// ── 停用窗口 ──────────────────────────────────────────────
+
+function doDisableContact(rowIndex) {
+  if (!confirm('確定要停用此窗口？停用後該窗口將不納入主要窗口計算，資料保留不刪除。')) return;
+  showLoading('停用中...');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      hideLoading();
+      if (r.company && r.contacts) {
+        updateLocalCache(r.company, r.contacts);
+      } else {
+        refreshCompanyData(currentCompany.keyid);
+      }
+    })
+    .withFailureHandler(handleError)
+    .runAs(__identityEmail, 'disableContact', [currentCompany.keyid, rowIndex]);
+}
+
+// ── 公司資料編輯 ──────────────────────────────────────────
+
+function openCompanyModal() {
+  if (!currentCompany) { alert('請先選取一家公司'); return; }
+  var co = currentCompany;
+  document.getElementById('cName').value         = co.name || '';
+  document.getElementById('cUnified').value      = co.unified || '';
+  document.getElementById('cAddress').value      = co.address || '';
+  document.getElementById('cIndustry').value     = co.industry || '';
+  document.getElementById('cDelivery').value     = co.delivery || '';
+  document.getElementById('cDeliveryAddr').value = co.deliveryAddr || '';
+  document.getElementById('cCoStatus').value     = co.coStatus || '';
+  document.getElementById('cStatusNote').value   = co.statusNote || '';
+  document.getElementById('companyModalOverlay').classList.add('show');
+}
+
+function closeCompanyModal() {
+  document.getElementById('companyModalOverlay').classList.remove('show');
+}
+
+function saveCompany() {
+  var data = {
+    name:         document.getElementById('cName').value.trim(),
+    unified:      document.getElementById('cUnified').value.trim(),
+    address:      document.getElementById('cAddress').value.trim(),
+    industry:     document.getElementById('cIndustry').value.trim(),
+    delivery:     document.getElementById('cDelivery').value,
+    deliveryAddr: document.getElementById('cDeliveryAddr').value.trim(),
+    coStatus:     document.getElementById('cCoStatus').value,
+    statusNote:   document.getElementById('cStatusNote').value.trim()
+  };
+  if (!data.name) { alert('公司名稱不可為空'); return; }
+
+  var btn = document.getElementById('btnSaveCompany');
+  btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false;
+      closeCompanyModal();
+      if (r.company) {
+        var kidStr = String(r.company.keyid).trim();
+        for (var i = 0; i < allCompanies.length; i++) {
+          if (String(allCompanies[i].keyid).trim() === kidStr) { allCompanies[i] = r.company; break; }
+        }
+        currentCompany = r.company;
+        renderCompanyDetail(r.company);
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      alert('儲存失敗：' + String(err));
+    })
+    .runAs(__identityEmail, 'editCompany', [currentCompany.keyid, data]);
+}
+
+// ── 波次設定 ──────────────────────────────────────────────
+
+function updateWaveBadge() {
+  var el = document.getElementById('waveBadge');
+  if (!el) return;
+  if (systemSettings.wave) {
+    el.textContent   = '目前波次 ' + systemSettings.wave;
+    el.style.display = 'inline-block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+function loadSettingsUI() {
+  google.script.run
+    .withSuccessHandler(function(s) {
+      if (s) systemSettings = s;
+      var w = document.getElementById('setWave');
+      if (w) {
+        w.value = systemSettings.wave || '';
+        document.getElementById('setWaveStart').value = systemSettings.waveStart || '';
+        document.getElementById('setCallLogId').value = systemSettings.callLogId || '';
+      }
+      updateWaveBadge();
+    })
+    .withFailureHandler(function(err) {
+      var msg = document.getElementById('settingsMsg');
+      if (msg) { msg.textContent = '設定載入失敗：' + String(err); msg.style.color = '#c62828'; }
+    })
+    .runAs(__identityEmail, 'getSystemSettings', []);
+}
+
+function doSaveSettings() {
+  var wave      = document.getElementById('setWave').value.trim();
+  var waveStart = document.getElementById('setWaveStart').value.trim();
+  var callLogId = document.getElementById('setCallLogId').value.trim();
+  var msg = document.getElementById('settingsMsg');
+  msg.textContent = '儲存中...';
+  msg.style.color = '#1a73e8';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      msg.textContent = r.message;
+      msg.style.color = '#2e7d32';
+      systemSettings.wave      = wave;
+      systemSettings.waveStart = waveStart;
+      systemSettings.callLogId = callLogId;
+      updateWaveBadge();
+    })
+    .withFailureHandler(function(err) {
+      msg.textContent = '儲存失敗：' + String(err);
+      msg.style.color = '#c62828';
+    })
+    .runAs(__identityEmail, 'saveSystemSettings', [{ wave: wave, waveStart: waveStart, callLogId: callLogId }]);
+}
+
+// ── 調查註記 ──────────────────────────────────────────────
+
+function renderNotes(kid) {
+  var wrap = document.getElementById('notesTableWrap');
+  var list = notesMap[kid] || [];
+  if (list.length === 0) {
+    wrap.innerHTML = '<div class="empty-hint">尚無註記</div>';
+    return;
+  }
+  // 生效中在前，再依時間新到舊
+  var sorted = list.slice().sort(function(a, b) {
+    if ((a.status === '生效中') !== (b.status === '生效中')) return a.status === '生效中' ? -1 : 1;
+    return String(b.time).localeCompare(String(a.time));
+  });
+  var html = '<table><thead><tr>' +
+    '<th>波次</th><th>類型</th><th>註記內容</th><th>狀態</th><th>來源</th>' +
+    '<th>記錄者</th><th>時間</th><th>操作</th>' +
+    '</tr></thead><tbody>';
+  sorted.forEach(function(n) {
+    var inactive = (n.status === '已失效');
+    html += '<tr' + (inactive ? ' class="contact-disabled"' : '') + '>' +
+      '<td>' + escHtml(n.wave || '') + '</td>' +
+      '<td style="white-space:nowrap;">' + escHtml(n.type || '') + '</td>' +
+      '<td style="max-width:380px;white-space:pre-wrap;">' + escHtml(n.content || '') + '</td>' +
+      '<td style="white-space:nowrap;">' + escHtml(n.status || '') + '</td>' +
+      '<td style="white-space:nowrap;">' + escHtml(n.source || '') + '</td>' +
+      '<td style="font-size:12px;">' + escHtml(n.user || '') + '</td>' +
+      '<td style="white-space:nowrap;font-size:12px;">' + escHtml(n.time || '') + '</td>' +
+      '<td style="white-space:nowrap;">' +
+        (inactive
+          ? '<button class="btn btn-secondary btn-sm" onclick="doSetNoteStatus(' + n.rowIndex + ',\'生效中\')">恢復生效</button>'
+          : ((currentUserRole === 'superAdmin' || currentUserRole === 'supervisor')
+              ? '<button class="btn btn-warning btn-sm" style="margin-right:4px;" title="把註記轉入公司正式欄位（寄送方式/地址/狀態）" onclick="openApplyModal(' + n.rowIndex + ')">套用</button>'
+              : '') +
+            '<button class="btn btn-danger btn-sm" onclick="doSetNoteStatus(' + n.rowIndex + ',\'已失效\')">設為失效</button>') +
+      '</td></tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function openNoteModal() {
+  if (!currentCompany) { alert('請先選取一家公司'); return; }
+  document.getElementById('nContent').value = '';
+  document.getElementById('nType').value    = '其他';
+  document.getElementById('noteModalOverlay').classList.add('show');
+}
+
+function closeNoteModal() {
+  document.getElementById('noteModalOverlay').classList.remove('show');
+}
+
+function saveNote() {
+  var content = document.getElementById('nContent').value.trim();
+  if (!content) { alert('請輸入註記內容'); return; }
+  var btn = document.getElementById('btnSaveNote');
+  btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false;
+      closeNoteModal();
+      var kid = String(currentCompany.keyid).trim();
+      notesMap[kid] = r.notes || [];
+      renderNotes(kid);
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      alert('儲存失敗：' + String(err));
+    })
+    .runAs(__identityEmail, 'addNote', [currentCompany.keyid, {
+      type:    document.getElementById('nType').value,
+      content: content,
+      coId:    currentCompany.id   || '',
+      coName:  currentCompany.name || ''
+    }]);
+}
+
+function doSetNoteStatus(rowIndex, status) {
+  if (!currentCompany) return;
+  showLoading('更新註記狀態...');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      hideLoading();
+      var kid = String(currentCompany.keyid).trim();
+      notesMap[kid] = r.notes || [];
+      renderNotes(kid);
+    })
+    .withFailureHandler(handleError)
+    .runAs(__identityEmail, 'setNoteStatus', [currentCompany.keyid, rowIndex, status]);
+}
+
+// ── 套用註記至公司資料 ────────────────────────────────────
+
+var applyingNoteRowIndex = null;
+
+function openApplyModal(rowIndex) {
+  if (!currentCompany) return;
+  var kid  = String(currentCompany.keyid).trim();
+  var note = null;
+  (notesMap[kid] || []).forEach(function(n) { if (n.rowIndex === rowIndex) note = n; });
+  if (!note) { alert('找不到註記資料，請重新整理後再試'); return; }
+  applyingNoteRowIndex = rowIndex;
+  document.getElementById('aContent').textContent = '[' + (note.wave || '—') + '] ' + (note.content || '');
+  document.getElementById('aDelivery').value      = currentCompany.delivery || '';
+  document.getElementById('aDeliveryAddr').value  = currentCompany.deliveryAddr || '';
+  document.getElementById('aCoStatus').value      = currentCompany.coStatus || '';
+  document.getElementById('aStatusNote').value    = currentCompany.statusNote || '';
+  document.getElementById('aDeactivate').checked  = true;
+  document.getElementById('applyModalOverlay').classList.add('show');
+}
+
+function closeApplyModal() {
+  document.getElementById('applyModalOverlay').classList.remove('show');
+}
+
+function saveApplyNote() {
+  if (!currentCompany || applyingNoteRowIndex === null) return;
+  var btn = document.getElementById('btnApplyNote');
+  btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      btn.disabled = false;
+      closeApplyModal();
+      var kid = String(currentCompany.keyid).trim();
+      if (r.company) {
+        for (var i = 0; i < allCompanies.length; i++) {
+          if (String(allCompanies[i].keyid).trim() === kid) { allCompanies[i] = r.company; break; }
+        }
+        currentCompany = r.company;
+        renderCompanyDetail(r.company);
+      }
+      notesMap[kid] = r.notes || [];
+      renderNotes(kid);
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      alert('套用失敗：' + String(err));
+    })
+    .runAs(__identityEmail, 'applyNote', [currentCompany.keyid, applyingNoteRowIndex, {
+      delivery:     document.getElementById('aDelivery').value,
+      deliveryAddr: document.getElementById('aDeliveryAddr').value.trim(),
+      coStatus:     document.getElementById('aCoStatus').value,
+      statusNote:   document.getElementById('aStatusNote').value.trim(),
+      deactivate:   document.getElementById('aDeactivate').checked
+    }]);
+}
+
+// ── 同步來電註記 ──────────────────────────────────────────
+
+function doSyncNotes() {
+  if (!confirm('開始從來電記錄表單同步「處理後註記」？已同步過的列會自動略過。')) return;
+  setImportBtnState('sync', true);
+  startProgressBar('sync', '同步中（讀取來電記錄表單，請稍候）...');
+  document.getElementById('syncLog').classList.remove('show');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      completeProgressBar('sync');
+      var logEl = document.getElementById('syncLog');
+      logEl.classList.add('show');
+      var html = '<div class="log-line msg-box msg-success" style="margin:6px 0;">&#10003; 新增註記：<strong>' + r.added + '</strong> 筆' +
+                 '&nbsp;&nbsp;略過（已同步）：<strong>' + r.skipped + '</strong> 筆' +
+                 '&nbsp;&nbsp;已登記列共：<strong>' + r.checked + '</strong> 筆' +
+                 '（其中註記空白 ' + (r.emptyNote || 0) + ' 筆）</div>';
+      if (r.notFound && r.notFound.length > 0) {
+        html += '<div class="log-line msg-box msg-warning" style="margin:6px 0;">&#9888; 比對不到平台公司（樣本編號不在公司主檔）：<strong>' +
+                r.notFound.length + '</strong> 筆</div><ul class="log-failed-list">';
+        r.notFound.forEach(function(f) {
+          html += '<li>樣編 ' + escHtml(f.sampleId) + '（' + escHtml(f.company) + '）：' + escHtml(f.note) + '...</li>';
+        });
+        html += '</ul>';
+      }
+      logEl.innerHTML = html;
+      if (r.added > 0) refreshNotesCache();
+    })
+    .withFailureHandler(function(err) {
+      errorProgressBar('sync', '同步失敗：' + String(err));
+    })
+    .runAs(__identityEmail, 'syncCallLogNotes', []);
+}
+
+/** 同步後重建前端註記快取 */
+function refreshNotesCache() {
+  google.script.run
+    .withSuccessHandler(function(list) {
+      notesMap = {};
+      (list || []).forEach(function(n) {
+        var k = String(n.keyid).trim();
+        if (!notesMap[k]) notesMap[k] = [];
+        notesMap[k].push(n);
+      });
+      if (currentCompany) renderNotes(String(currentCompany.keyid).trim());
+    })
+    .withFailureHandler(function() { /* 快取刷新失敗不影響同步結果，重新整理頁面即可 */ })
+    .runAs(__identityEmail, 'getAllNotes', []);
+}
+
+// ── 異動歷史 ──────────────────────────────────────────────
+
+function resetHistory() {
+  document.getElementById('historyWrap').innerHTML =
+    '<div class="empty-hint">點「載入異動歷史」查看此公司的所有變更紀錄</div>';
+}
+
+function loadHistory() {
+  if (!currentCompany) { alert('請先選取一家公司'); return; }
+  var btn = document.getElementById('btnLoadHistory');
+  btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(list) {
+      btn.disabled = false;
+      var wrap = document.getElementById('historyWrap');
+      if (!list || list.length === 0) {
+        wrap.innerHTML = '<div class="empty-hint">此公司尚無異動紀錄</div>';
+        return;
+      }
+      var html = '<table><thead><tr>' +
+        '<th>時間</th><th>操作者</th><th>類型</th><th>欄位</th><th>變更前</th><th>變更後</th>' +
+        '</tr></thead><tbody>';
+      list.forEach(function(h) {
+        html += '<tr>' +
+          '<td style="white-space:nowrap;font-size:12px;">' + escHtml(h.time) + '</td>' +
+          '<td style="font-size:12px;">' + escHtml(h.user) + '</td>' +
+          '<td style="white-space:nowrap;">' + escHtml(h.type) + '</td>' +
+          '<td style="white-space:nowrap;">' + escHtml(h.field) + '</td>' +
+          '<td>' + escHtml(h.before) + '</td>' +
+          '<td>' + escHtml(h.after) + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+      if (list.length >= 200) {
+        html += '<div style="color:#888;font-size:13px;margin-top:6px;">（僅顯示最近 200 筆）</div>';
+      }
+      wrap.innerHTML = html;
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      alert('載入失敗：' + String(err));
+    })
+    .runAs(__identityEmail, 'getCompanyHistory', [currentCompany.keyid]);
+}
+
+// ── 資料健檢 ──────────────────────────────────────────────
+
+var healthIssues = [];
+
+function doHealthCheck() {
+  var btn = document.getElementById('btnHealthCheck');
+  btn.disabled = true;
+  document.getElementById('healthLog').classList.remove('show');
+  document.getElementById('btnHealthDownload').style.display = 'none';
+  showLoading('健檢掃描中，請稍候...');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      hideLoading();
+      btn.disabled = false;
+      healthIssues = r.issues || [];
+      var logEl = document.getElementById('healthLog');
+      logEl.classList.add('show');
+      if (healthIssues.length === 0) {
+        logEl.innerHTML = '<div class="msg-box msg-success" style="margin:6px 0;">&#10003; 未發現格式問題</div>';
+        return;
+      }
+      var byProblem = {};
+      healthIssues.forEach(function(x) { byProblem[x.problem] = (byProblem[x.problem] || 0) + 1; });
+      var html = '<div class="msg-box msg-warning" style="margin:6px 0;">共發現 <strong>' + r.count + '</strong> 筆格式問題：</div><ul class="log-failed-list">';
+      Object.keys(byProblem).forEach(function(p) {
+        html += '<li>' + escHtml(p) + '：' + byProblem[p] + ' 筆</li>';
+      });
+      html += '</ul><div style="color:#888;font-size:13px;">請下載清單後人工確認；窗口資料修正後可用「整批匯入」更新（同名同電話會更新既有筆）。</div>';
+      logEl.innerHTML = html;
+      document.getElementById('btnHealthDownload').style.display = 'inline-flex';
+    })
+    .withFailureHandler(function(err) {
+      hideLoading();
+      btn.disabled = false;
+      alert('健檢失敗：' + String(err));
+    })
+    .runAs(__identityEmail, 'dataHealthCheck', []);
+}
+
+function downloadHealthReport() {
+  if (healthIssues.length === 0) return;
+  var rows = healthIssues.map(function(x) {
+    return { '工作表': x.sheet, 'keyid': x.keyid, '公司名稱': x.company, '欄位': x.field, '目前值': x.value, '問題': x.problem };
+  });
+  var ws = XLSX.utils.json_to_sheet(rows, { header: ['工作表', 'keyid', '公司名稱', '欄位', '目前值', '問題'] });
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '資料健檢');
+  XLSX.writeFile(wb, '資料健檢_' + todayStr() + '.xlsx');
+}
+
+// ── 通用錯誤處理 ──────────────────────────────────────────
+
+function handleError(err) {
+  hideLoading();
+  hideModalLoading();
+  alert('發生錯誤：' + String(err));
+}
+
+// ── 整批匯入 ──────────────────────────────────────────────
+
+/**
+ * 整批匯入欄位別名表：欄名先去空白、轉小寫再比對
+ */
+var IMPORT_FIELD_ALIASES = {
+  keyid:   ['keyid流水號', 'keyid'],
+  id:      ['id'],
+  company: ['公司名稱', '公司'],
+  name:    ['調查後窗口', '窗口姓名', '窗口', '姓名'],
+  gender:  ['填表性別', '性別'],
+  dept:    ['職稱', '部門別', '部門'],
+  phone:   ['接觸電話', '電話'],
+  ext:     ['分機'],
+  fax:     ['傳真'],
+  email:   ['email', 'e-mail', 'mail', '電子郵件', '電子信箱']
+};
+
+var IMPORT_FIELD_LABELS = {
+  keyid: 'keyid流水號', id: 'ID', company: '公司名稱', name: '調查後窗口',
+  gender: '填表性別', dept: '職稱', phone: '接觸電話', ext: '分機', fax: '傳真', email: 'email'
+};
+
+/**
+ * 建立整批匯入的欄位對應表（寬鬆比對：忽略空白與大小寫，支援常見別名）
+ * @returns {{map: Object, matched: Object, unmapped: Array}}
+ *   map: 平台欄位→欄索引；matched: 平台欄位→檔案實際欄名；unmapped: 檔案中未被使用的欄名
+ */
+function buildImportColMap(headers) {
+  var normed = headers.map(function(h) {
+    return String(h).replace(/\s+/g, '').toLowerCase();
+  });
+  var map = {}, matched = {}, usedIdx = {};
+  Object.keys(IMPORT_FIELD_ALIASES).forEach(function(field) {
+    var aliases = IMPORT_FIELD_ALIASES[field];
+    for (var a = 0; a < aliases.length; a++) {
+      var idx = normed.indexOf(aliases[a].toLowerCase());
+      if (idx !== -1 && !usedIdx[idx]) {
+        map[field]     = idx;
+        matched[field] = String(headers[idx]).trim();
+        usedIdx[idx]   = true;
+        break;
+      }
+    }
+  });
+  var unmapped = [];
+  headers.forEach(function(h, i) {
+    if (!usedIdx[i] && String(h).trim() !== '') unmapped.push(String(h).trim());
+  });
+  return { map: map, matched: matched, unmapped: unmapped };
+}
+
+/* ── 進度條共用 helpers ────────────────────────────────── */
+var _progressTimers = {};
+
+function startProgressBar(prefix, text) {
+  var wrap   = document.getElementById(prefix + 'ProgressWrap');
+  var fill   = document.getElementById(prefix + 'ProgressFill');
+  var status = document.getElementById(prefix + 'ProgressStatus');
+  fill.style.width = '0%';
+  fill.className   = 'progress-bar-fill';
+  status.className = 'progress-status';
+  status.textContent = text;
+  wrap.classList.add('show');
+
+  var pct = 0;
+  clearInterval(_progressTimers[prefix]);
+  _progressTimers[prefix] = setInterval(function() {
+    pct += (90 - pct) * 0.06;
+    fill.style.width = Math.min(pct, 90) + '%';
+  }, 300);
+}
+
+function updateProgressStatus(prefix, text) {
+  document.getElementById(prefix + 'ProgressStatus').textContent = text;
+}
+
+/** 設定真實進度百分比（停用漸近動畫） */
+function setProgress(prefix, pct, text) {
+  clearInterval(_progressTimers[prefix]);
+  document.getElementById(prefix + 'ProgressFill').style.width = Math.min(Math.max(pct, 0), 100) + '%';
+  if (text !== undefined) updateProgressStatus(prefix, text);
+}
+
+function completeProgressBar(prefix) {
+  clearInterval(_progressTimers[prefix]);
+  var fill   = document.getElementById(prefix + 'ProgressFill');
+  var status = document.getElementById(prefix + 'ProgressStatus');
+  fill.style.width = '100%';
+  fill.classList.add('done');
+  status.textContent = '完成';
+  setImportBtnState(prefix, false);
+}
+
+function errorProgressBar(prefix, msg) {
+  clearInterval(_progressTimers[prefix]);
+  var fill   = document.getElementById(prefix + 'ProgressFill');
+  var status = document.getElementById(prefix + 'ProgressStatus');
+  fill.classList.add('error');
+  status.textContent = msg;
+  status.classList.add('error');
+  setImportBtnState(prefix, false);
+}
+
+function setImportBtnState(prefix, disabled) {
+  var idMap = { import: 'btnBatchImport', sample: 'btnSampleImport', repair: 'btnRepairImport', sync: 'btnSyncNotes' };
+  var btn = document.getElementById(idMap[prefix]);
+  if (btn) btn.disabled = disabled;
+}
+
+/**
+ * 整批匯入 第一段：解析檔案 → 顯示欄位對應預覽，等待使用者按「確認匯入」
+ */
+var pendingImportRows = null; // 檢查通過、等待確認匯入的資料
+
+function doBatchImport() {
+  var fileInput = document.getElementById('importFile');
+  var file = fileInput.files[0];
+  if (!file) { alert('請選擇 xlsx 檔案'); return; }
+
+  pendingImportRows = null;
+  document.getElementById('btnConfirmImport').style.display = 'none';
+  document.getElementById('importLog').classList.remove('show');
+  document.getElementById('importPreview').innerHTML = '';
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var wb      = XLSX.read(e.target.result, { type: 'array' });
+      var ws      = wb.Sheets[wb.SheetNames[0]];
+      var allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (allRows.length < 2) { alert('檔案無資料列'); return; }
+
+      var headers   = allRows[0];
+      var colInfo   = buildImportColMap(headers);
+      var colMap    = colInfo.map;
+      var dataArray = [];
+
+      for (var i = 1; i < allRows.length; i++) {
+        var row = allRows[i];
+        var hasData = row.some(function(v) { return String(v).trim() !== ''; });
+        if (!hasData) continue;
+        dataArray.push({
+          keyid:   colMap.keyid   !== undefined ? String(row[colMap.keyid]).trim()   : '',
+          id:      colMap.id      !== undefined ? String(row[colMap.id]).trim()      : '',
+          company: colMap.company !== undefined ? String(row[colMap.company]).trim() : '',
+          name:    colMap.name    !== undefined ? String(row[colMap.name]).trim()    : '',
+          gender:  colMap.gender  !== undefined ? String(row[colMap.gender]).trim()  : '',
+          dept:    colMap.dept    !== undefined ? String(row[colMap.dept]).trim()    : '',
+          phone:   colMap.phone   !== undefined ? String(row[colMap.phone]).trim()   : '',
+          ext:     colMap.ext     !== undefined ? String(row[colMap.ext]).trim()     : '',
+          fax:     colMap.fax     !== undefined ? String(row[colMap.fax]).trim()     : '',
+          email:   colMap.email   !== undefined ? String(row[colMap.email]).trim()   : ''
+        });
+      }
+
+      // 欄位對應預覽：讓使用者匯入前確認欄位有沒有對上
+      var html = '<div class="msg-box msg-info" style="margin:10px 0;"><strong>欄位對應檢查</strong>（共 ' +
+                 dataArray.length + ' 筆資料列）</div>';
+      html += '<table style="font-size:13px;border-collapse:collapse;">';
+      Object.keys(IMPORT_FIELD_LABELS).forEach(function(field) {
+        var ok = colMap[field] !== undefined;
+        html += '<tr>' +
+          '<td style="padding:3px 12px 3px 0;color:#555;">' + escHtml(IMPORT_FIELD_LABELS[field]) + '</td>' +
+          '<td style="padding:3px 0;">' + (ok
+            ? '<span style="color:#2e7d32;">&#10003; ' + escHtml(colInfo.matched[field]) + '</span>'
+            : '<span style="color:#c62828;">&#10007; 未對應（此欄將以空白匯入）</span>') +
+          '</td></tr>';
+      });
+      html += '</table>';
+      if (colInfo.unmapped.length > 0) {
+        html += '<div class="msg-box msg-warning" style="margin:10px 0;">&#9888; 檔案中以下欄位未被使用：' +
+                escHtml(colInfo.unmapped.join('、')) + '</div>';
+      }
+      if (colMap.keyid === undefined) {
+        html += '<div class="msg-box msg-error" style="margin:10px 0;">&#10007; 找不到 keyid 欄位，無法匯入。請確認檔案標題列。</div>';
+        document.getElementById('importPreview').innerHTML = html;
+        return;
+      }
+      html += '<div class="msg-box msg-info" style="margin:10px 0;">確認無誤後請按「確認匯入」。' +
+              '同公司若已有<strong>同姓名＋同電話（或同email）</strong>的啟用窗口，將<strong>更新該筆</strong>而非重複新增。</div>';
+      document.getElementById('importPreview').innerHTML = html;
+
+      pendingImportRows = dataArray;
+      document.getElementById('btnConfirmImport').style.display = 'inline-flex';
+    } catch (ex) {
+      alert('檔案解析失敗：' + String(ex));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/**
+ * 整批匯入 第二段：分批上傳（每批 400 筆，序列執行），進度條顯示真實進度
+ * 任一批失敗即中止並回報已完成的批次結果
+ */
+var IMPORT_CHUNK_SIZE = 400;
+
+function doConfirmBatchImport() {
+  if (!pendingImportRows || pendingImportRows.length === 0) { alert('請先檢查檔案'); return; }
+
+  var rows   = pendingImportRows;
+  var chunks = [];
+  for (var i = 0; i < rows.length; i += IMPORT_CHUNK_SIZE) {
+    chunks.push(rows.slice(i, i + IMPORT_CHUNK_SIZE));
+  }
+
+  setImportBtnState('import', true);
+  document.getElementById('btnConfirmImport').disabled = true;
+  startProgressBar('import', '開始匯入...');
+
+  var agg  = { success: 0, updated: 0, failed: [], errors: [] };
+  var done = 0;
+
+  function runNext() {
+    if (done >= chunks.length) {
+      setProgress('import', 100);
+      completeProgressBar('import');
+      document.getElementById('btnConfirmImport').disabled      = false;
+      document.getElementById('btnConfirmImport').style.display = 'none';
+      pendingImportRows = null;
+      showImportLog(agg);
+      return;
+    }
+    setProgress('import', Math.round(done / chunks.length * 100),
+                '匯入中：第 ' + (done + 1) + ' / ' + chunks.length + ' 批（已處理 ' +
+                (done * IMPORT_CHUNK_SIZE) + ' / ' + rows.length + ' 筆）...');
+    google.script.run
+      .withSuccessHandler(function(result) {
+        agg.success += result.success || 0;
+        agg.updated += result.updated || 0;
+        if (result.failed) agg.failed = agg.failed.concat(result.failed);
+        if (result.errors) agg.errors = agg.errors.concat(result.errors);
+        done++;
+        runNext();
+      })
+      .withFailureHandler(function(err) {
+        agg.errors.push('第 ' + (done + 1) + ' 批上傳失敗：' + String(err) + '（該批之後的資料未匯入，修正後可重新匯入，已匯入資料不會重複）');
+        errorProgressBar('import', '匯入中斷');
+        document.getElementById('btnConfirmImport').disabled = false;
+        showImportLog(agg);
+      })
+      .runAs(__identityEmail, 'batchImport', [chunks[done]]);
+  }
+  runNext();
+}
+
+function showImportLog(result) {
+  var logEl = document.getElementById('importLog');
+  logEl.classList.add('show');
+
+  var html = '<div class="log-line"><strong>匯入結果</strong></div>' +
+    '<div class="log-line msg-box msg-success" style="margin:6px 0;">&#10003; 新增：<strong>' + result.success + '</strong> 筆' +
+    '&nbsp;&nbsp;&nbsp;&#8635; 更新既有窗口：<strong>' + (result.updated || 0) + '</strong> 筆</div>';
+
+  if (result.failed && result.failed.length > 0) {
+    html += '<div class="log-line msg-box msg-warning" style="margin:6px 0;">&#9888; 未匯入：<strong>' +
+            result.failed.length + '</strong> 筆</div>';
+    html += '<ul class="log-failed-list">';
+    result.failed.forEach(function(f) {
+      html += '<li>keyid: <strong>' + escHtml(String(f.keyid)) + '</strong> ' +
+              (f.company ? '（' + escHtml(f.company) + '）' : '') +
+              ' — ' + escHtml(f.reason) + '</li>';
+    });
+    html += '</ul>';
+  }
+
+  if (result.errors && result.errors.length > 0) {
+    html += '<div class="log-line msg-box msg-error" style="margin:6px 0;">&#9888; 發生錯誤：</div><ul class="log-failed-list">';
+    result.errors.forEach(function(e) {
+      html += '<li>' + escHtml(e) + '</li>';
+    });
+    html += '</ul>';
+  }
+
+  logEl.innerHTML = html;
+}
+
+// ── 整批匯出 ──────────────────────────────────────────────
+
+function getSelectedExportScope() {
+  var el = document.querySelector('input[name="exportScope"]:checked');
+  return el ? el.value : 'main';
+}
+
+/**
+ * 取得匯出預覽筆數（無需下載）
+ */
+function getExportPreview() {
+  var industryFilter = document.getElementById('exportIndustryFilter').value.trim();
+  var scope = getSelectedExportScope();
+  document.getElementById('exportPreview').textContent      = '查詢中...';
+  document.getElementById('btnConfirmExport').style.display = 'none';
+  document.getElementById('exportProgressWrap').classList.remove('show');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      var scopeLabel = scope === 'all' ? '全部公司' : '有主要窗口的公司';
+      var msg = (industryFilter ? '行業別「<strong>' + escHtml(industryFilter) + '</strong>」' : '') +
+                '範圍「<strong>' + scopeLabel + '</strong>」共 <strong>' + r.count + '</strong> 筆，確認匯出？';
+      document.getElementById('exportPreview').innerHTML = msg;
+      document.getElementById('btnConfirmExport').style.display = r.count > 0 ? 'inline-flex' : 'none';
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('exportPreview').textContent = '查詢失敗：' + String(err);
+    })
+    .runAs(__identityEmail, 'getExportPreview', [industryFilter, scope]);
+}
+
+/**
+ * 匯出主要窗口清單：從伺服器取得資料陣列，由 SheetJS 在瀏覽器端生成 xlsx
+ */
+function doExport() {
+  var industryFilter = document.getElementById('exportIndustryFilter').value.trim();
+  var scope = getSelectedExportScope();
+  var btn = document.getElementById('btnConfirmExport');
+  btn.style.display = 'none';
+  startProgressBar('export', '向伺服器取得資料中，請稍候...');
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      try {
+        updateProgressStatus('export', '產生 Excel 檔案中...');
+        var exportHeader = ['keyid','ID','統編','公司名稱','行業別','主要窗口姓名','主要窗口性別','主要窗口部門別','主要窗口電話','主要窗口分機','主要窗口傳真','主要窗口email','寄送方式','寄送地址','公司狀態','生效中註記'];
+        var ws  = XLSX.utils.json_to_sheet(data, { header: exportHeader });
+        var wb  = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '主要窗口');
+        var scopeLabel = scope === 'all' ? '全部公司' : '有主窗口';
+        XLSX.writeFile(wb, '職缺窗口匯出_' + scopeLabel + '_' + todayStr() + '.xlsx');
+        completeProgressBar('export');
+        document.getElementById('exportProgressStatus').textContent = '匯出完成（共 ' + data.length + ' 筆）';
+      } catch (ex) {
+        errorProgressBar('export', '匯出失敗：' + String(ex));
+      }
+      btn.textContent   = '確認匯出';
+      btn.style.display = 'inline-flex';
+    })
+    .withFailureHandler(function(err) {
+      errorProgressBar('export', '匯出失敗：' + String(err));
+      btn.textContent   = '確認匯出';
+      btn.style.display = 'inline-flex';
+    })
+    .runAs(__identityEmail, 'getExportData', [industryFilter, scope]);
+}
+
+/**
+ * 窗口明細全檔匯出（所有窗口，含停用）
+ */
+function doExportContacts() {
+  var btn = document.getElementById('btnExportAll');
+  btn.disabled = true;
+  btn.textContent = '匯出中...';
+  startProgressBar('exportAll', '向伺服器取得資料中，請稍候...');
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      try {
+        updateProgressStatus('exportAll', '產生 Excel 檔案中...');
+        var header = ['keyid','公司名稱','姓名','電話','分機','email','傳真','部門別','性別','狀態','完整度分數','來源','建立時間','最後修改時間','修改者帳號'];
+        var ws  = XLSX.utils.json_to_sheet(data, { header: header });
+        var wb  = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, '窗口明細');
+        XLSX.writeFile(wb, '窗口明細全檔_' + todayStr() + '.xlsx');
+        completeProgressBar('exportAll');
+        document.getElementById('exportAllProgressStatus').textContent = '匯出完成（共 ' + data.length + ' 筆）';
+      } catch (ex) {
+        errorProgressBar('exportAll', '匯出失敗：' + String(ex));
+      }
+      btn.disabled = false;
+      btn.textContent = '↓ 窗口明細全檔匯出';
+    })
+    .withFailureHandler(function(err) {
+      errorProgressBar('exportAll', '匯出失敗：' + String(err));
+      btn.disabled = false;
+      btn.textContent = '↓ 窗口明細全檔匯出';
+    })
+    .runAs(__identityEmail, 'getContactExportData', []);
+}
+
+function todayStr() {
+  var d = new Date();
+  var pad = function(n) { return n < 10 ? '0' + n : String(n); };
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+
+// ── 新增樣本 ──────────────────────────────────────────────
+
+function buildSampleColMap(headers) {
+  var map = {};
+  headers.forEach(function(h, i) {
+    var s = String(h).trim();
+    if (s === 'keyid')      map.keyid     = i;
+    if (s === 'ID')         map.id        = i;
+    if (s === '統編')       map.unified   = i;
+    if (s === '公司名稱')   map.name      = i;
+    if (s === '地址')       map.address   = i;
+    if (s === '填表人姓名') map.formName  = i;
+    if (s === '填表人電話') map.formPhone = i;
+    if (s === '填表人傳真') map.formFax   = i;
+    if (s === '行業別')     map.industry  = i;
+  });
+  return map;
+}
+
+/** 下載整批匯入範本（含標題列範例格式） */
+function downloadImportTemplate() {
+  var ws = XLSX.utils.aoa_to_sheet([[
+    'keyid流水號', 'ID', '公司名稱', '調查後窗口', '填表性別', '職稱',
+    '接觸電話', '分機', '傳真', 'email'
+  ]]);
+  // 設定欄寬讓範本更易閱讀
+  ws['!cols'] = [
+    {wch:12},{wch:10},{wch:20},{wch:10},{wch:8},{wch:12},
+    {wch:14},{wch:8},{wch:14},{wch:22}
+  ];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '整批匯入範本');
+  XLSX.writeFile(wb, '整批匯入範本.xlsx');
+}
+
+/** 下載新增樣本範本（含標題列範例格式） */
+function downloadSampleTemplate() {
+  var ws = XLSX.utils.aoa_to_sheet([[
+    'keyid', 'ID', '統編', '公司名稱', '地址',
+    '填表人姓名', '填表人電話', '填表人傳真', '行業別'
+  ]]);
+  ws['!cols'] = [
+    {wch:10},{wch:10},{wch:12},{wch:20},{wch:30},
+    {wch:10},{wch:14},{wch:14},{wch:15}
+  ];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '新增樣本範本');
+  XLSX.writeFile(wb, '新增樣本範本.xlsx');
+}
+
+function doSampleImport() {
+  var fileInput = document.getElementById('sampleFile');
+  var file = fileInput.files[0];
+  if (!file) { alert('請選擇 xlsx 檔案'); return; }
+
+  setImportBtnState('sample', true);
+  startProgressBar('sample', '讀取檔案中...');
+  document.getElementById('sampleLog').classList.remove('show');
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    updateProgressStatus('sample', '解析資料中...');
+    try {
+      var wb      = XLSX.read(e.target.result, { type: 'array' });
+      var ws      = wb.Sheets[wb.SheetNames[0]];
+      var allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (allRows.length < 2) {
+        errorProgressBar('sample', '檔案無資料列');
+        return;
+      }
+
+      var headers   = allRows[0];
+      var colMap    = buildSampleColMap(headers);
+      var dataArray = [];
+
+      for (var i = 1; i < allRows.length; i++) {
+        var row = allRows[i];
+        var hasData = row.some(function(v) { return String(v).trim() !== ''; });
+        if (!hasData) continue;
+        dataArray.push({
+          keyid:     colMap.keyid     !== undefined ? String(row[colMap.keyid]).trim()     : '',
+          id:        colMap.id        !== undefined ? String(row[colMap.id]).trim()        : '',
+          unified:   colMap.unified   !== undefined ? String(row[colMap.unified]).trim()   : '',
+          name:      colMap.name      !== undefined ? String(row[colMap.name]).trim()      : '',
+          address:   colMap.address   !== undefined ? String(row[colMap.address]).trim()   : '',
+          formName:  colMap.formName  !== undefined ? String(row[colMap.formName]).trim()  : '',
+          formPhone: colMap.formPhone !== undefined ? String(row[colMap.formPhone]).trim() : '',
+          formFax:   colMap.formFax   !== undefined ? String(row[colMap.formFax]).trim()   : '',
+          industry:  colMap.industry  !== undefined ? String(row[colMap.industry]).trim()  : ''
+        });
+      }
+
+      updateProgressStatus('sample', '上傳至伺服器（共 ' + dataArray.length + ' 筆）...');
+      google.script.run
+        .withSuccessHandler(showSampleLog)
+        .withFailureHandler(function(err) {
+          errorProgressBar('sample', '匯入失敗：' + String(err));
+        })
+        .runAs(__identityEmail, 'sampleImport', [dataArray]);
+    } catch (ex) {
+      errorProgressBar('sample', '檔案解析失敗：' + String(ex));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showSampleLog(result) {
+  completeProgressBar('sample');
+  var logEl = document.getElementById('sampleLog');
+  logEl.classList.add('show');
+
+  var html = '<div class="log-line"><strong>匯入結果</strong></div>' +
+    '<div class="log-line msg-box msg-success" style="margin:6px 0;">&#10003; 新增：<strong>' +
+    result.added + '</strong> 筆</div>' +
+    '<div class="log-line msg-box msg-info" style="margin:6px 0;">&#8631; 略過（已存在）：<strong>' +
+    result.skipped + '</strong> 筆</div>';
+
+  if (result.errors && result.errors.length > 0) {
+    html += '<div class="log-line msg-box msg-error" style="margin:6px 0;">&#9888; 錯誤：</div>' +
+            '<ul class="log-failed-list">';
+    result.errors.forEach(function(e) {
+      html += '<li>' + escHtml(e) + '</li>';
+    });
+    html += '</ul>';
+  }
+
+  logEl.innerHTML = html;
+}
+
+// ── email 批次修復（僅超級管理員）─────────────────────────
+
+function doRepairImport() {
+  var fileInput = document.getElementById('repairFile');
+  var file = fileInput.files[0];
+  if (!file) { alert('請選擇 xlsx 檔案'); return; }
+
+  setImportBtnState('repair', true);
+  startProgressBar('repair', '讀取檔案中...');
+  document.getElementById('repairLog').classList.remove('show');
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var wb      = XLSX.read(e.target.result, { type: 'array' });
+      var ws      = wb.Sheets[wb.SheetNames[0]];
+      var allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (allRows.length < 2) { errorProgressBar('repair', '檔案無資料列'); return; }
+
+      var headers = allRows[0].map(function(h) { return String(h).replace(/\s+/g, '').toLowerCase(); });
+      var kIdx = headers.indexOf('keyid');
+      var wIdx = headers.indexOf('錯誤email');
+      var cIdx = headers.indexOf('修正email');
+      if (kIdx === -1 || wIdx === -1 || cIdx === -1) {
+        errorProgressBar('repair', '找不到必要欄位（keyid、錯誤email、修正email）');
+        return;
+      }
+      var list = [];
+      for (var i = 1; i < allRows.length; i++) {
+        var row = allRows[i];
+        if (!String(row[kIdx]).trim()) continue;
+        list.push({
+          keyid:   String(row[kIdx]).trim(),
+          wrong:   String(row[wIdx]).trim(),
+          correct: String(row[cIdx]).trim()
+        });
+      }
+      updateProgressStatus('repair', '修復中（共 ' + list.length + ' 筆，請稍候）...');
+      google.script.run
+        .withSuccessHandler(function(r) {
+          completeProgressBar('repair');
+          var logEl = document.getElementById('repairLog');
+          logEl.classList.add('show');
+          var html = '<div class="log-line msg-box msg-success" style="margin:6px 0;">&#10003; 修復完成：<strong>' +
+                     r.fixed + '</strong> 筆</div>';
+          if (r.notFound && r.notFound.length > 0) {
+            html += '<div class="log-line msg-box msg-warning" style="margin:6px 0;">&#9888; 未修復：<strong>' +
+                    r.notFound.length + '</strong> 筆</div><ul class="log-failed-list">';
+            r.notFound.forEach(function(f) {
+              html += '<li>keyid: <strong>' + escHtml(String(f.keyid)) + '</strong>（' +
+                      escHtml(f.wrong || '') + '）— ' + escHtml(f.reason) + '</li>';
+            });
+            html += '</ul>';
+          }
+          logEl.innerHTML = html;
+        })
+        .withFailureHandler(function(err) {
+          errorProgressBar('repair', '修復失敗：' + String(err));
+        })
+        .runAs(__identityEmail, 'repairEmails', [list]);
+    } catch (ex) {
+      errorProgressBar('repair', '檔案解析失敗：' + String(ex));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── 授權管理（僅超級管理員）──────────────────────────────
+
+/**
+ * 載入並渲染授權名單
+ */
+function loadAdminList() {
+  google.script.run
+    .withSuccessHandler(renderAdminList)
+    .withFailureHandler(function(err) {
+      document.getElementById('adminListBody').innerHTML =
+        '<tr><td colspan="6" style="color:#c62828;">載入失敗：' + escHtml(String(err)) + '</td></tr>';
+    })
+    .runAs(__identityEmail, 'getAdminList', []);
+}
+
+function renderAdminList(list) {
+  var tbody = document.getElementById('adminListBody');
+  if (!list || list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:12px;">授權名單為空</td></tr>';
+    return;
+  }
+  var roleLabel = { superAdmin: '超級管理員', supervisor: '督導帳號', general: '一般帳號' };
+  var roleBadgeStyle = {
+    superAdmin: 'background:#6a1b9a;color:#fff;border-radius:4px;padding:2px 8px;font-size:13px;',
+    supervisor: 'background:#43a047;color:#fff;border-radius:4px;padding:2px 8px;font-size:13px;',
+    general:    'background:#e3f2fd;color:#1565c0;border-radius:4px;padding:2px 8px;font-size:13px;'
+  };
+  var html = '';
+  list.forEach(function(item) {
+    var r = item.role || 'general';
+    html += '<tr>' +
+      '<td>' + escHtml(item.email) + '</td>' +
+      '<td>' + escHtml(item.name  || '') + '</td>' +
+      '<td><span style="' + (roleBadgeStyle[r] || roleBadgeStyle.general) + '">' + escHtml(roleLabel[r] || '一般帳號') + '</span></td>' +
+      '<td style="font-size:12px;">' + escHtml(item.time  || '') + '</td>' +
+      '<td style="font-size:12px;">' + escHtml(item.by    || '') + '</td>' +
+      '<td style="white-space:nowrap;">' +
+        '<button class="btn btn-secondary btn-sm" style="margin-right:4px;" onclick="doChangeAdminRole(\'' + escHtml(item.email) + '\',\'' + r + '\')">切換角色</button>' +
+        (r === 'supervisor'
+          ? '<button class="btn btn-warning btn-sm" style="margin-right:4px;" title="' +
+            (item.pinSet ? '已設定密語，點擊可重置' : '尚未設定密語') +
+            '" onclick="doResetPin(\'' + escHtml(item.email) + '\')">重置密語' + (item.pinSet ? '' : '（未設）') + '</button>'
+          : '') +
+        '<button class="btn btn-danger btn-sm" onclick="doRemoveAdmin(\'' + escHtml(item.email) + '\')">移除</button>' +
+      '</td>' +
+      '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+/**
+ * 新增授權帳號
+ */
+function doAddAdmin() {
+  var email = document.getElementById('adminEmailInput').value.trim();
+  var name  = document.getElementById('adminNameInput').value.trim();
+  var role  = document.getElementById('adminRoleInput').value;
+  if (!email) { alert('請輸入 email'); return; }
+
+  var msgEl = document.getElementById('adminMsg');
+  msgEl.textContent = '處理中...';
+  msgEl.style.color = '#1a73e8';
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      msgEl.textContent = r.message;
+      msgEl.style.color = r.success ? '#2e7d32' : '#e65100';
+      if (r.success) {
+        document.getElementById('adminEmailInput').value = '';
+        document.getElementById('adminNameInput').value  = '';
+        loadAdminList();
+      }
+    })
+    .withFailureHandler(function(err) {
+      msgEl.textContent = '操作失敗：' + String(err);
+      msgEl.style.color = '#c62828';
+    })
+    .runAs(__identityEmail, 'addAdmin', [email, name, role]);
+}
+
+/**
+ * 切換授權帳號角色（general ↔ supervisor）
+ */
+function doChangeAdminRole(email, currentRole) {
+  var newRole  = currentRole === 'general' ? 'supervisor' : currentRole === 'supervisor' ? 'superAdmin' : 'general';
+  var newLabel = newRole === 'superAdmin' ? '超級管理員' : newRole === 'supervisor' ? '督導帳號' : '一般帳號';
+  if (!confirm('確定要將 ' + email + ' 的角色改為「' + newLabel + '」？')) return;
+
+  var msgEl = document.getElementById('adminMsg');
+  msgEl.textContent = '處理中...';
+  msgEl.style.color = '#1a73e8';
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      msgEl.textContent = r.message;
+      msgEl.style.color = r.success ? '#2e7d32' : '#e65100';
+      if (r.success) loadAdminList();
+    })
+    .withFailureHandler(function(err) {
+      msgEl.textContent = '操作失敗：' + String(err);
+      msgEl.style.color = '#c62828';
+    })
+    .runAs(__identityEmail, 'updateAdminRole', [email, newRole]);
+}
+
+/**
+ * 移除授權帳號
+ */
+function doRemoveAdmin(email) {
+  if (!confirm('確定要移除 ' + email + ' 的授權？')) return;
+  var msgEl = document.getElementById('adminMsg');
+  msgEl.textContent = '處理中...';
+  msgEl.style.color = '#1a73e8';
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      msgEl.textContent = r.message;
+      msgEl.style.color = r.success ? '#2e7d32' : '#e65100';
+      if (r.success) loadAdminList();
+    })
+    .withFailureHandler(function(err) {
+      msgEl.textContent = '操作失敗：' + String(err);
+      msgEl.style.color = '#c62828';
+    })
+    .runAs(__identityEmail, 'removeAdmin', [email]);
+}
+
+/**
+ * 重置督導帳號的通關密語（v7 新增，僅超級管理員看得到這顆按鈕）
+ * 重置後對方下次選擇身份會回到「設定密語」畫面，需重新自己設一次
+ */
+function doResetPin(email) {
+  if (!confirm('確定要重置 ' + email + ' 的通關密語？重置後對方下次登入需要重新設定一次。')) return;
+  var msgEl = document.getElementById('adminMsg');
+  msgEl.textContent = '處理中...';
+  msgEl.style.color = '#1a73e8';
+
+  google.script.run
+    .withSuccessHandler(function(r) {
+      msgEl.textContent = r.message;
+      msgEl.style.color = r.success ? '#2e7d32' : '#e65100';
+      if (r.success) loadAdminList();
+    })
+    .withFailureHandler(function(err) {
+      msgEl.textContent = '操作失敗：' + String(err);
+      msgEl.style.color = '#c62828';
+    })
+    .runAs(__identityEmail, 'resetPin', [email]);
+}
+
+// ── 工具函式 ──────────────────────────────────────────────
+
+/**
+ * HTML 跳脫，防止 XSS 注入
+ */
+function escHtml(str) {
+  var s = String(str === null || str === undefined ? '' : str);
+  return s.replace(/&/g,  '&amp;')
+          .replace(/</g,  '&lt;')
+          .replace(/>/g,  '&gt;')
+          .replace(/"/g,  '&quot;')
+          .replace(/'/g,  '&#39;');
+}
+</script>
+</body>
+</html>
